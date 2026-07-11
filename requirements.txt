@@ -1,5 +1,0 @@
-python-telegram-bot==20.8
-aiohttp~=3.9
-phonenumbers~=8.13
-python-dotenv~=1.0
-httpx<0.28
