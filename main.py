@@ -94,23 +94,31 @@ async def get_number_info(number):
         response = requests.get(f"{API_URL}{number}", timeout=20)
         if response.status_code == 200:
             content_type = response.headers.get('content-type', '')
+            
+            # If PDF
             if 'application/pdf' in content_type:
                 return ("PDF", response.content)
+            
+            # If JSON
             try:
                 data = response.json()
+                # If PDF URL in JSON
                 if data.get('success') and data.get('pdf_url'):
                     pdf_response = requests.get(data['pdf_url'], timeout=20)
                     if pdf_response.status_code == 200:
                         return ("PDF", pdf_response.content)
-                if data.get('success') and data.get('data'):
-                    d = data['data']
-                    result = f"📋 NUMBER INFO RESULT\nTarget: {number}\n{'='*30}\n\nName    : {d.get('name', 'N/A')}\nFather  : {d.get('father', 'N/A')}\nAddress : {d.get('address', 'N/A')}\nAlt Num : {d.get('alt_num', '')}\nCircle  : {d.get('circle', 'N/A')}\nID      : {d.get('id', 'N/A')}\nEmail   : {d.get('email', '')}\n\n{'-'*30}\n\nName    : {d.get('name', 'N/A')}\nFather  : {d.get('father', 'N/A')}\nAddress : {d.get('address', 'N/A')}\nAlt Num : {d.get('alt_num', '')}\nCircle  : {d.get('circle', 'N/A')}\nID      : {d.get('id', 'N/A')}\nEmail   : {d.get('email', '')}\n\n{'='*30}"
-                    return ("TEXT", result)
-            except:
-                pass
-    except:
-        pass
-    return ("ERROR", None)
+                
+                # Return raw JSON as file
+                json_data = json.dumps(data, indent=2)
+                return ("JSON", json_data)
+                
+            except json.JSONDecodeError:
+                # If not JSON, return raw text
+                return ("TEXT", response.text)
+        else:
+            return ("ERROR", f"Status Code: {response.status_code}")
+    except Exception as e:
+        return ("ERROR", str(e))
 
 # ============ HANDLERS ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -291,8 +299,17 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=f"✅ Search Completed!\n\nTarget: {text}",
             parse_mode='Markdown'
         )
+    elif result_type == "JSON" and result_data:
+        # Send JSON as file
+        json_file = io.BytesIO(result_data.encode('utf-8'))
+        await msg.delete()
+        await update.message.reply_document(
+            document=InputFile(json_file, filename=f"info_{text}.json"),
+            caption=f"✅ Search Completed!\n\nTarget: {text}",
+            parse_mode='Markdown'
+        )
     elif result_type == "TEXT" and result_data:
-        # Send as TXT file
+        # Send as txt file
         txt_file = io.BytesIO(result_data.encode('utf-8'))
         await msg.delete()
         await update.message.reply_document(
@@ -302,7 +319,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await msg.edit_text(
-            "❌ **API Failed!**\n\nPlease try again later.\n\n👨‍💻 Developer: @T4HKR",
+            f"❌ **Error!**\n\n{result_data}\n\n👨‍💻 Developer: @T4HKR",
             reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
