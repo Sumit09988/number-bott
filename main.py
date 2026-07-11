@@ -39,11 +39,19 @@ def update_user_activity(user_id):
     conn.commit()
     conn.close()
 
+def get_total_users():
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT COUNT(*) FROM users')
+    count = c.fetchone()[0]
+    conn.close()
+    return count
+
 app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Bot Active!"
+    return "Bot Active! Developer: @T4HKR"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -56,19 +64,31 @@ def run_flask():
 
 bot_app = Application.builder().token(TOKEN).build()
 
-# Store users who clicked "Joined All"
-joined_users = set()
+verified_users = set()
 
-def get_buttons(is_admin=False):
+# ============ BUTTONS ============
+def get_main_buttons(is_admin=False):
     buttons = [
-        [InlineKeyboardButton("🔍 Search", callback_data='search')],
-        [InlineKeyboardButton("📊 Menu", callback_data='menu')],
+        [InlineKeyboardButton("📱 Lookup Now", callback_data='lookup')],
+        [InlineKeyboardButton("💳 My Credits", callback_data='credits')],
+        [InlineKeyboardButton("👥 Refer & Earn", callback_data='refer')],
+        [InlineKeyboardButton("❓ Help", callback_data='help')],
     ]
     if is_admin:
-        buttons.append([InlineKeyboardButton("👑 Admin", callback_data='admin')])
+        buttons.append([InlineKeyboardButton("👑 Owner Dashboard", callback_data='admin')])
     buttons.append([InlineKeyboardButton("👤 Profile", callback_data='profile')])
     return InlineKeyboardMarkup(buttons)
 
+def get_admin_buttons():
+    buttons = [
+        [InlineKeyboardButton("📊 Total Users", callback_data='total_users')],
+        [InlineKeyboardButton("➕ Add Credits", callback_data='add_credits')],
+        [InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')],
+        [InlineKeyboardButton("⬅️ Back", callback_data='back')],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+# ============ API ============
 async def get_number_info(number):
     try:
         response = requests.get(f"{API_URL}{number}", timeout=20)
@@ -90,44 +110,156 @@ async def get_number_info(number):
                 pass
     except:
         pass
-    result = f"📋 NUMBER INFO RESULT\nTarget: {number}\n{'='*30}\n\nName    : SANDHYA SINGH\nFather  : SUNEEL KUMAR SINGH\nAddress : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\nAlt Num : \nCircle  : UP EAST\nID      : 322123881901\nEmail   : \n\n{'-'*30}\n\nName    : SANDHYA SINGH\nFather  : SUNEEL KUMAR SINGH\nAddress : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\nAlt Num : \nCircle  : UP EAST\nID      : 322123881901\nEmail   : \n\n{'='*30}"
-    return ("TEXT", result)
+    return ("ERROR", None)
 
+# ============ HANDLERS ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
+    verified_users.add(user.id)
     
-    # Check if user already verified
-    if user.id in joined_users:
-        await update.message.reply_text(
-            f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {user.first_name}\nID {user.id}\n\nStart Now\nJuly 11",
-            reply_markup=get_buttons(user.id == ADMIN_ID),
-            parse_mode='Markdown'
-        )
-        return
-    
-    keyboard = [
-        [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
-        [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
-        [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
-        [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
-    ]
     await update.message.reply_text(
-        "⚠️ Please join all 3 channels first!\n\nAfter joining, click the button below:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        f"👋 Welcome {user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
+        reply_markup=get_main_buttons(user.id == ADMIN_ID),
+        parse_mode='Markdown'
     )
 
-async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📱 **Send a 10-digit number**\nExample: `9876543210`\n\nWithout +91",
+        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "💳 **My Credits**\n\nYou have 0 credits\n\n💰 Buy credits:\n100 credits - ₹99\n500 credits - ₹399\n1000 credits - ₹699\n\nContact @T4HKR",
+        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "👥 **Refer & Earn**\n\nRefer a friend and earn 10 credits!\n\nYour referral link:\n`https://t.me/SumitOsintBot?start=ref_{}`\n\nShare and earn! 🚀",
+        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "❓ **Help**\n\n📱 Send any 10-digit number to get info\n💰 Buy credits for unlimited searches\n👥 Refer friends to earn free credits\n\n👨‍💻 Developer: @T4HKR\n\n📌 Channel: @SUMITNETW0RK",
+        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = query.from_user
+    
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT join_date, total_queries FROM users WHERE user_id = ?', (user_id,))
+    data = c.fetchone()
+    conn.close()
+    
+    if data:
+        profile_text = f"""👤 **Profile**
+
+Name: {user.first_name}
+Username: @{user.username if user.username else 'None'}
+ID: {user_id}
+Joined: {data[0][:10]}
+Total Queries: {data[1]}
+Credits: 0
+
+👨‍💻 Developer: @T4HKR"""
+    else:
+        profile_text = "❌ Profile not found!"
+    
+    await query.edit_message_text(
+        profile_text,
+        reply_markup=get_main_buttons(user_id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     
-    # Mark user as joined
-    joined_users.add(user_id)
+    if user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!")
+        return
     
     await query.edit_message_text(
-        f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {query.from_user.first_name}\nID {user_id}\n\nStart Now\nJuly 11",
-        reply_markup=get_buttons(user_id == ADMIN_ID),
+        "👑 **Owner Dashboard**\n\nSelect an option:",
+        reply_markup=get_admin_buttons(),
+        parse_mode='Markdown'
+    )
+
+async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!")
+        return
+    
+    total = get_total_users()
+    await query.edit_message_text(
+        f"📊 **Total Users**\n\n👥 Total Users: {total}\n\n👨‍💻 Developer: @T4HKR",
+        reply_markup=get_admin_buttons(),
+        parse_mode='Markdown'
+    )
+
+async def add_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!")
+        return
+    
+    await query.edit_message_text(
+        "➕ **Add Credits**\n\nSend user ID and credits:\n`/addcredits user_id amount`\n\nExample:\n`/addcredits 7515864015 100`",
+        reply_markup=get_admin_buttons(),
+        parse_mode='Markdown'
+    )
+
+async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!")
+        return
+    
+    await query.edit_message_text(
+        "📢 **Broadcast Mode**\n\nSend the message you want to broadcast\nType /cancel to stop",
+        reply_markup=get_admin_buttons(),
+        parse_mode='Markdown'
+    )
+    context.user_data['broadcast_mode'] = True
+
+async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    user = query.from_user
+    
+    await query.edit_message_text(
+        f"👋 Welcome {user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
+        reply_markup=get_main_buttons(user_id == ADMIN_ID),
         parse_mode='Markdown'
     )
 
@@ -136,23 +268,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = user.id
     text = update.message.text.strip()
     
-    # Check if user verified
-    if user_id not in joined_users:
-        keyboard = [
-            [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
-        ]
-        await update.message.reply_text(
-            "⚠️ Please join all 3 channels first!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
-        return
+    if user_id not in verified_users:
+        verified_users.add(user_id)
     
-    # Check if it's a number
     if not text.isdigit() or len(text) < 10:
-        await update.message.reply_text("❌ Send a valid 10-digit number\nExample: 9876543210")
+        await update.message.reply_text(
+            "❌ Send a valid 10-digit number\nExample: `9876543210`",
+            parse_mode='Markdown'
+        )
         return
     
     msg = await update.message.reply_text("⏳ Searching...")
@@ -160,7 +283,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     result_type, result_data = await get_number_info(text)
     
-    if result_type == "PDF":
+    if result_type == "PDF" and result_data:
         pdf_file = io.BytesIO(result_data)
         await msg.delete()
         await update.message.reply_document(
@@ -168,116 +291,67 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             caption=f"✅ Search Completed!\nTarget: {text}\n\n👨‍💻 Developer: @T4HKR",
             parse_mode='Markdown'
         )
-    else:
+    elif result_type == "TEXT" and result_data:
         await msg.edit_text(
             result_data,
-            reply_markup=get_buttons(user_id == ADMIN_ID),
-            parse_mode='Markdown'
-        )
-
-async def search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "🔍 Send a 10-digit number\nExample: 9876543210",
-        reply_markup=get_buttons(query.from_user.id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        f"📌 Sumit Osint Bot\n151 monthly users\n\n📋 Hello {query.from_user.first_name}\nID {query.from_user.id}\n\nCommands:\n/start - Restart\n/buy_plan - Purchase plan\n\nSend any 10-digit number to search",
-        reply_markup=get_buttons(query.from_user.id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT first_name, join_date, total_queries FROM users WHERE user_id = ?', (query.from_user.id,))
-    data = c.fetchone()
-    conn.close()
-    if data:
-        await query.edit_message_text(
-            f"👤 Profile\nName: {data[0]}\nJoined: {data[1][:10]}\nQueries: {data[2]}",
-            reply_markup=get_buttons(query.from_user.id == ADMIN_ID),
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
     else:
-        await query.edit_message_text("❌ Profile not found!")
-
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!", reply_markup=get_buttons(False))
-        return
-    await query.edit_message_text(
-        "👑 Admin Panel",
-        reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')],
-            [InlineKeyboardButton("⬅️ Back", callback_data='back')]
-        ])
-    )
-
-async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    if query.from_user.id != ADMIN_ID:
-        return
-    await query.edit_message_text("📢 Send message to broadcast\nType /cancel to stop")
-    context.user_data['broadcast_mode'] = True
-
-async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await admin_callback(update, context)
-
-async def buy_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "💰 Unlimited Plan\n• Unlimited searches\n• Priority access\n• PDF reports\n\nContact @T4HKR for pricing",
-        parse_mode='Markdown'
-    )
-
-async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data['broadcast_mode'] = False
-    await update.message.reply_text("❌ Cancelled")
+        await msg.edit_text(
+            "❌ **API Failed!**\n\nPlease try again later.\n\n👨‍💻 Developer: @T4HKR",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            parse_mode='Markdown'
+        )
 
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('broadcast_mode'):
+        if update.effective_user.id != ADMIN_ID:
+            await update.message.reply_text("❌ Access Denied!")
+            return
+        
         conn = sqlite3.connect('users.db')
         c = conn.cursor()
         c.execute('SELECT user_id FROM users')
         users = c.fetchall()
         conn.close()
+        
         if not users:
             await update.message.reply_text("❌ No users!")
             return
+        
         success = 0
         for user in users:
             try:
-                await context.bot.send_message(chat_id=user[0], text=f"📢 BROADCAST\n\n{update.message.text}")
+                await context.bot.send_message(
+                    chat_id=user[0],
+                    text=f"📢 **BROADCAST**\n\n{update.message.text}",
+                    parse_mode='Markdown'
+                )
                 success += 1
             except:
                 pass
+        
         await update.message.reply_text(f"✅ Broadcast sent to {success} users")
         context.user_data['broadcast_mode'] = False
 
-# Register handlers
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['broadcast_mode'] = False
+    await update.message.reply_text("❌ Cancelled")
+
+# ============ REGISTER ============
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("cancel", cancel))
-bot_app.add_handler(CommandHandler("buy_plan", buy_plan))
-bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check_join'))
-bot_app.add_handler(CallbackQueryHandler(search_callback, pattern='search'))
-bot_app.add_handler(CallbackQueryHandler(menu_callback, pattern='menu'))
-bot_app.add_handler(CallbackQueryHandler(profile_callback, pattern='profile'))
-bot_app.add_handler(CallbackQueryHandler(admin_callback, pattern='admin'))
+bot_app.add_handler(CallbackQueryHandler(lookup, pattern='lookup'))
+bot_app.add_handler(CallbackQueryHandler(credits, pattern='credits'))
+bot_app.add_handler(CallbackQueryHandler(refer, pattern='refer'))
+bot_app.add_handler(CallbackQueryHandler(help_callback, pattern='help'))
+bot_app.add_handler(CallbackQueryHandler(profile, pattern='profile'))
+bot_app.add_handler(CallbackQueryHandler(admin_dashboard, pattern='admin'))
+bot_app.add_handler(CallbackQueryHandler(total_users, pattern='total_users'))
+bot_app.add_handler(CallbackQueryHandler(add_credits, pattern='add_credits'))
 bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
-bot_app.add_handler(CallbackQueryHandler(back_callback, pattern='back'))
+bot_app.add_handler(CallbackQueryHandler(back, pattern='back'))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 bot_app.add_handler(MessageHandler(filters.PHOTO, handle_broadcast))
 
