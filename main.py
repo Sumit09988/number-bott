@@ -14,6 +14,7 @@ TOKEN = "8617423223:AAHUcMIDMWXVN0rpiWECM1v-3JucJzObiQs"
 CHANNEL_1 = "https://t.me/SUMITNETW0RK"
 CHANNEL_2 = "https://t.me/numberleakks"
 CHANNEL_3 = "https://t.me/lokixnetwork"
+CHANNEL_4 = "https://t.me/SlotsByPhoenix"
 ADMIN_ID = 7515864015
 API_URL = "https://numinfo-eris.vercel.app/info?key=sumit128&id="
 
@@ -66,7 +67,7 @@ bot_app = Application.builder().token(TOKEN).build()
 
 verified_users = set()
 
-# ============ BUTTONS ============
+# ============ PERMANENT BUTTONS (Bottom) ============
 def get_main_buttons(is_admin=False):
     buttons = [
         [InlineKeyboardButton("📱 Lookup Now", callback_data='lookup')],
@@ -87,6 +88,28 @@ def get_admin_buttons():
         [InlineKeyboardButton("⬅️ Back", callback_data='back')],
     ]
     return InlineKeyboardMarkup(buttons)
+
+# ============ FORCE JOIN (4 Channels) ============
+def get_join_buttons():
+    buttons = [
+        [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
+        [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
+        [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
+        [InlineKeyboardButton("🔗 Join Channel 4", url=CHANNEL_4)],
+        [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
+    ]
+    return InlineKeyboardMarkup(buttons)
+
+async def is_member(user_id, context):
+    channels = ["@SUMITNETW0RK", "@numberleakks", "@lokixnetwork", "@SlotsByPhoenix"]
+    for channel in channels:
+        try:
+            member = await context.bot.get_chat_member(channel, user_id)
+            if member.status in ['left', 'kicked']:
+                return False
+        except:
+            return False
+    return True
 
 # ============ API ============
 async def get_number_info(number):
@@ -111,7 +134,7 @@ async def get_number_info(number):
                 if 'Developer' in data:
                     del data['Developer']
                 
-                # Add only Developer: @T4HKR
+                # Add Developer: @T4HKR
                 data['Developer'] = '@T4HKR'
                 
                 json_data = json.dumps(data, indent=2)
@@ -130,11 +153,38 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(user.id, user.username, user.first_name, user.last_name)
     verified_users.add(user.id)
     
+    # Check if user joined all 4 channels
+    if not await is_member(user.id, context):
+        await update.message.reply_text(
+            "⚠️ **Please join all 4 channels first!**\n\nAfter joining, click the button below:",
+            reply_markup=get_join_buttons(),
+            parse_mode='Markdown'
+        )
+        return
+    
     await update.message.reply_text(
         f"👋 Welcome {user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
         reply_markup=get_main_buttons(user.id == ADMIN_ID),
         parse_mode='Markdown'
     )
+
+async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if await is_member(user_id, context):
+        await query.edit_message_text(
+            f"👋 Welcome {query.from_user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            parse_mode='Markdown'
+        )
+    else:
+        await query.edit_message_text(
+            "❌ **Still not joined all channels!**\n\nPlease join all 4 channels first:",
+            reply_markup=get_join_buttons(),
+            parse_mode='Markdown'
+        )
 
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -167,7 +217,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "❓ **Help**\n\n📱 Send any 10-digit number to get info\n💰 Buy credits for unlimited searches\n👥 Refer friends to earn free credits\n\n👨‍💻 Developer: @T4HKR\n\n📌 Channel: @SUMITNETW0RK",
+        "❓ **Help**\n\n📱 Send any 10-digit number to get info\n💰 Buy credits for unlimited searches\n👥 Refer friends to earn free credits\n\n👨‍💻 Developer: @T4HKR\n\n📌 Channels:\n• @SUMITNETW0RK\n• @numberleakks\n• @lokixnetwork\n• @SlotsByPhoenix",
         reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
         parse_mode='Markdown'
     )
@@ -283,9 +333,19 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in verified_users:
         verified_users.add(user_id)
     
+    # Check if joined all channels
+    if not await is_member(user_id, context):
+        await update.message.reply_text(
+            "⚠️ **Please join all 4 channels first!**",
+            reply_markup=get_join_buttons(),
+            parse_mode='Markdown'
+        )
+        return
+    
     if not text.isdigit() or len(text) < 10:
         await update.message.reply_text(
             "❌ Send a valid 10-digit number\nExample: `9876543210`",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
         return
@@ -301,6 +361,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(pdf_file, filename=f"search_result_{text}.pdf"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
     elif result_type == "JSON" and result_data:
@@ -309,6 +370,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(json_file, filename=f"info_{text}.json"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
     elif result_type == "TEXT" and result_data:
@@ -317,6 +379,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(txt_file, filename=f"search_result_{text}.txt"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
+            reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
     else:
@@ -364,6 +427,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ============ REGISTER ============
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("cancel", cancel))
+bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check_join'))
 bot_app.add_handler(CallbackQueryHandler(lookup, pattern='lookup'))
 bot_app.add_handler(CallbackQueryHandler(credits, pattern='credits'))
 bot_app.add_handler(CallbackQueryHandler(refer, pattern='refer'))
@@ -382,4 +446,5 @@ if __name__ == '__main__':
     threading.Thread(target=run_flask, daemon=True).start()
     print("✅ Bot Started! Developer: @T4HKR")
     print(f"👑 Admin ID: {ADMIN_ID}")
+    print(f"📢 Channels: {CHANNEL_1}, {CHANNEL_2}, {CHANNEL_3}, {CHANNEL_4}")
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
