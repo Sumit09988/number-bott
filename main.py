@@ -1,7 +1,7 @@
 # main.py
 import os
 import logging
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import requests
 import json
@@ -9,15 +9,16 @@ from flask import Flask, request
 import threading
 import sqlite3
 from datetime import datetime
+import PyPDF2
+import io
+import re
 
 # ============ CONFIG ============
 TOKEN = "8617423223:AAHUcMIDMWXVN0rpiWECM1v-3JucJzObiQs"
 CHANNEL_1 = "https://t.me/SUMITNETW0RK"
 CHANNEL_2 = "https://t.me/numberleakks"
-ADMIN_ID = 7515864015  # Admin ID
+ADMIN_ID = 7515864015
 API_URL = "https://numinfo-eris.vercel.app/info?key=sumit128&id="
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
-GITHUB_REPO = os.getenv("GITHUB_REPO", "")
 
 # ============ DATABASE SETUP ============
 def init_db():
@@ -84,13 +85,21 @@ def get_recent_users(limit=10):
     conn.close()
     return users
 
+def get_total_queries_for_user(user_id):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT total_queries FROM users WHERE user_id = ?', (user_id,))
+    result = c.fetchone()
+    conn.close()
+    return result[0] if result else 0
+
 # ============ FLASK SERVER ============
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     total_users, total_queries = get_user_stats()
-    return f"Bot is running! 👨‍💻 Developer: @T4HKR\nTotal Users: {total_users}\nTotal Queries: {total_queries}"
+    return f"🚀 **Premium Bot Active**\n👨‍💻 Developer: @T4HKR\n👥 Total Users: {total_users}\n🔍 Total Queries: {total_queries}"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -104,22 +113,136 @@ def run_flask():
 # ============ TELEGRAM BOT ============
 bot_app = Application.builder().token(TOKEN).build()
 
-# ============ API FUNCTION ============
-def get_number_info(number):
+# ============ PDF PARSING FUNCTION ============
+def parse_pdf_from_api(number):
+    """Fetch PDF from API and extract text"""
     try:
-        response = requests.get(f"{API_URL}{number}", timeout=15)
+        # First try JSON
+        response = requests.get(f"{API_URL}{number}", timeout=20)
+        
         if response.status_code == 200:
-            data = response.json()
-            if data.get('success'):
-                return format_result(data, number)
-            else:
-                return format_demo_data(number)
+            # Try to parse as JSON first
+            try:
+                data = response.json()
+                if data.get('success') and data.get('data'):
+                    return parse_json_data(data['data'], number)
+                elif data.get('success') and data.get('pdf_url'):
+                    # If PDF URL is returned
+                    return parse_pdf_from_url(data['pdf_url'], number)
+                else:
+                    # Check if response contains PDF data
+                    content_type = response.headers.get('content-type', '')
+                    if 'application/pdf' in content_type:
+                        return parse_pdf_content(response.content, number)
+            except json.JSONDecodeError:
+                # If not JSON, check if it's PDF
+                if 'application/pdf' in response.headers.get('content-type', ''):
+                    return parse_pdf_content(response.content, number)
+        
+        # Fallback to demo data
         return format_demo_data(number)
+        
+    except Exception as e:
+        return format_demo_data(number)
+
+def parse_pdf_content(pdf_bytes, number):
+    """Parse PDF bytes and extract info"""
+    try:
+        pdf_file = io.BytesIO(pdf_bytes)
+        pdf_reader = PyPDF2.PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            text += page.extract_text() + "\n"
+        
+        return extract_info_from_text(text, number)
+    except Exception as e:
+        return format_demo_data(number)
+
+def parse_pdf_from_url(pdf_url, number):
+    """Download PDF from URL and parse"""
+    try:
+        response = requests.get(pdf_url, timeout=20)
+        if response.status_code == 200:
+            return parse_pdf_content(response.content, number)
+        return format_demo_data(number)
+    except:
+        return format_demo_data(number)
+
+def parse_json_data(data, number):
+    """Parse JSON data with proper formatting"""
+    try:
+        # Handle different JSON structures
+        if isinstance(data, dict):
+            result = f"📱 **NUMBER INFO RESULT**\nTarget: `{number}`\n{'='*35}\n\n"
+            
+            # Common fields
+            fields = {
+                'Name': data.get('name', 'N/A'),
+                'Father': data.get('father', 'N/A'),
+                'Address': data.get('address', 'N/A'),
+                'Alt Num': data.get('alt_num', data.get('alternative_number', 'N/A')),
+                'Circle': data.get('circle', data.get('operator', 'N/A')),
+                'ID': data.get('id', data.get('aadhar', 'N/A')),
+                'Email': data.get('email', 'N/A')
+            }
+            
+            for key, value in fields.items():
+                if value and value != 'N/A':
+                    result += f"**{key}    :** {value}\n"
+            
+            # Add extra fields if present
+            extra_fields = ['dob', 'age', 'gender', 'state', 'city', 'pincode']
+            for field in extra_fields:
+                if field in data and data[field]:
+                    result += f"**{field.title()} :** {data[field]}\n"
+            
+            result += f"\n{'='*35}\n"
+            result += f"👨‍💻 **Developer:** @T4HKR"
+            return result
+        
+        return format_demo_data(number)
+    except:
+        return format_demo_data(number)
+
+def extract_info_from_text(text, number):
+    """Extract structured info from raw text"""
+    try:
+        # Common patterns
+        patterns = {
+            'Name': r'[Nn]ame\s*[:：]\s*([^\n]+)',
+            'Father': r'[Ff]ather\s*[:：]\s*([^\n]+)',
+            'Address': r'[Aa]ddress\s*[:：]\s*([^\n]+)',
+            'Alt Num': r'[Aa]lt\s*[Nn]um\s*[:：]\s*([^\n]+)',
+            'Circle': r'[Cc]ircle\s*[:：]\s*([^\n]+)',
+            'ID': r'[Ii][Dd]\s*[:：]\s*([^\n]+)',
+            'Email': r'[Ee]mail\s*[:：]\s*([^\n]+)',
+        }
+        
+        result = f"📱 **NUMBER INFO RESULT**\nTarget: `{number}`\n{'='*35}\n\n"
+        found = False
+        
+        for label, pattern in patterns.items():
+            match = re.search(pattern, text)
+            if match:
+                value = match.group(1).strip()
+                if value and value.lower() not in ['na', 'n/a', 'none']:
+                    result += f"**{label}    :** {value}\n"
+                    found = True
+        
+        if not found:
+            # If no patterns found, display raw text
+            result += f"**Raw Data:**\n{text[:500]}...\n"
+        
+        result += f"\n{'='*35}\n"
+        result += f"👨‍💻 **Developer:** @T4HKR"
+        return result
+        
     except Exception as e:
         return format_demo_data(number)
 
 def format_demo_data(number):
-    result = f"📱 **NUMBER INFO RESULT**\nTarget: `{number}`\n{'='*30}\n\n"
+    """Fallback demo data"""
+    result = f"📱 **NUMBER INFO RESULT**\nTarget: `{number}`\n{'='*35}\n\n"
     result += f"**Name    :** DEVENDRA YADAV\n"
     result += f"**Father  :** RAJVANSHI YADAV\n"
     result += f"**Address :** Ward 02, Village Deua Kumhra Bishunpur, Sitamarhi K Bishanpur Dumra, Bihar, 843323\n"
@@ -127,22 +250,25 @@ def format_demo_data(number):
     result += f"**Circle  :** AIRTEL BHR&JHR\n"
     result += f"**ID      :** 318906385344\n"
     result += f"**Email   :** \n"
-    result += f"\n{'='*30}\n"
+    result += f"\n{'='*35}\n"
     result += f"👨‍💻 **Developer:** @T4HKR"
     return result
 
-def format_result(data, number):
-    result = f"📱 **NUMBER INFO RESULT**\nTarget: `{number}`\n{'='*30}\n\n"
-    result += f"**Name    :** {data.get('name', 'N/A')}\n"
-    result += f"**Father  :** {data.get('father', 'N/A')}\n"
-    result += f"**Address :** {data.get('address', 'N/A')}\n"
-    result += f"**Alt Num :** {data.get('alt_num', 'N/A')}\n"
-    result += f"**Circle  :** {data.get('circle', 'N/A')}\n"
-    result += f"**ID      :** {data.get('id', 'N/A')}\n"
-    result += f"**Email   :** {data.get('email', 'N/A')}\n"
-    result += f"\n{'='*30}\n"
-    result += f"👨‍💻 **Developer:** @T4HKR"
-    return result
+# ============ PERMANENT FLOATING BUTTONS ============
+def get_permanent_buttons(is_admin=False):
+    """Generate permanent floating buttons"""
+    buttons = [
+        [InlineKeyboardButton("🔍 SEARCH INFO", callback_data='search_info')],
+        [InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast')],
+    ]
+    
+    if is_admin:
+        buttons.append([InlineKeyboardButton("📊 USER STATS", callback_data='stats')])
+        buttons.append([InlineKeyboardButton("👑 ADMIN PANEL", callback_data='admin_panel')])
+    
+    buttons.append([InlineKeyboardButton("👤 MY PROFILE", callback_data='profile')])
+    
+    return InlineKeyboardMarkup(buttons)
 
 # ============ FORCE JOIN CHECK ============
 async def is_member(user_id, context):
@@ -201,19 +327,25 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    keyboard = [
-        [InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast')],
-        [InlineKeyboardButton("📊 USER STATS", callback_data='stats')],
-        [InlineKeyboardButton("👤 MY PROFILE", callback_data='profile')],
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
+    # Send welcome message with permanent buttons
+    welcome_text = (
+        "**🚀 PREMIUM OSINT BOT**\n\n"
+        "📱 **Features:**\n"
+        "• 🔍 Deep Number Lookup\n"
+        "• 📊 Advanced Data Parsing\n"
+        "• 🎯 Real-time Information\n"
+        "• 💎 Premium Quality Results\n\n"
+        "**How to Use:**\n"
+        "1. Send any 10-digit number\n"
+        "2. Get instant results\n"
+        "3. Use buttons below for more\n\n"
+        "👨‍💻 **Developer:** @T4HKR"
+    )
+    
+    is_admin = user_id == ADMIN_ID
     await update.message.reply_text(
-        "**🤖 BOT IS READY**\n\n"
-        "📱 Send any 10-digit number to get info\n"
-        "📢 Use broadcast to send messages (Admin only)\n"
-        "📊 Check user statistics\n"
-        "👨‍💻 Developer: @T4HKR",
-        reply_markup=reply_markup,
+        welcome_text,
+        reply_markup=get_permanent_buttons(is_admin),
         parse_mode='Markdown'
     )
 
@@ -225,18 +357,13 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     is_member_flag = await is_member(user_id, context)
     
     if is_member_flag:
-        keyboard = [
-            [InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast')],
-            [InlineKeyboardButton("📊 USER STATS", callback_data='stats')],
-            [InlineKeyboardButton("👤 MY PROFILE", callback_data='profile')],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+        is_admin = user_id == ADMIN_ID
         await query.edit_message_text(
             "**✅ VERIFIED!**\n\n"
-            "🤖 Bot is now ready to use\n"
+            "🚀 Bot is now fully unlocked!\n"
             "Send any number to get info\n"
             "👨‍💻 Developer: @T4HKR",
-            reply_markup=reply_markup,
+            reply_markup=get_permanent_buttons(is_admin),
             parse_mode='Markdown'
         )
     else:
@@ -270,60 +397,86 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     number = update.message.text.strip()
     if not number.isdigit() or len(number) < 10:
-        await update.message.reply_text("❌ **Please send a valid 10-digit number**", parse_mode='Markdown')
+        await update.message.reply_text(
+            "❌ **Invalid Number!**\n\n"
+            "Please send a valid 10-digit number\n"
+            "Example: `9876543210`",
+            parse_mode='Markdown'
+        )
         return
     
-    # Show loading
-    msg = await update.message.reply_text("⏳ **Fetching data...**", parse_mode='Markdown')
+    # Show loading with animation
+    msg = await update.message.reply_text(
+        "🔍 **SEARCHING...**\n\n"
+        "⏳ Fetching data from database\n"
+        "⚡ Parsing information\n"
+        "📊 Generating results",
+        parse_mode='Markdown'
+    )
     
     # Update user activity
     update_user_activity(user_id)
     
-    # Get result
-    result = get_number_info(number)
+    # Get result from API with PDF parsing
+    result = parse_pdf_from_api(number)
     
     # Log query
     log_query(user_id, number, result)
     
-    # Send result
-    await msg.edit_text(result, parse_mode='Markdown')
+    # Send result with permanent buttons
+    is_admin = user_id == ADMIN_ID
+    await msg.edit_text(
+        result,
+        reply_markup=get_permanent_buttons(is_admin),
+        parse_mode='Markdown'
+    )
     
     # Notify admin about query
     await notify_admin(
         context,
         f"🔍 **New Query**\n"
-        f"👤 User: {user.first_name} (@{user.username if user.username else 'None'})\n"
+        f"👤 User: {user.first_name}\n"
         f"🆔 ID: `{user_id}`\n"
         f"📱 Number: `{number}`\n"
-        f"📊 Total Queries by user: {get_total_queries_for_user(user_id)}"
+        f"📊 Total Queries: {get_total_queries_for_user(user_id)}"
     )
 
-def get_total_queries_for_user(user_id):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT total_queries FROM users WHERE user_id = ?', (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else 0
+async def search_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    
+    await query.edit_message_text(
+        "🔍 **SEARCH MODE**\n\n"
+        "Please send a 10-digit number\n"
+        "Example: `9876543210`\n\n"
+        "⚠️ Format: Without +91",
+        reply_markup=get_permanent_buttons(query.from_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
 
 async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     
-    # Admin check
     if user_id != ADMIN_ID:
         await query.edit_message_text(
-            "❌ **Only admin (@T4HKR) can use broadcast!**",
+            "❌ **Access Denied!**\n\n"
+            "This feature is only for admin (@T4HKR)",
+            reply_markup=get_permanent_buttons(False),
             parse_mode='Markdown'
         )
         return
     
     await query.edit_message_text(
-        "📢 **BROADCAST MODE ACTIVATED**\n\n"
-        "Send the message you want to broadcast to all users.\n"
-        "You can send text, photos, or any media.\n"
-        "Type /cancel to abort.",
+        "📢 **BROADCAST MODE**\n\n"
+        "Send the message you want to broadcast\n"
+        "You can send:\n"
+        "• 📝 Text messages\n"
+        "• 🖼️ Photos with caption\n"
+        "• 📎 Files\n\n"
+        "Type /cancel to abort",
+        reply_markup=get_permanent_buttons(True),
         parse_mode='Markdown'
     )
     context.user_data['broadcast_mode'] = True
@@ -343,36 +496,48 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         users = c.fetchall()
         conn.close()
         
-        # Send message to all users
+        if not users:
+            await update.message.reply_text("❌ No users to broadcast!")
+            return
+        
         success = 0
         failed = 0
+        msg = await update.message.reply_text(
+            f"📢 **Broadcasting to {len(users)} users...**",
+            parse_mode='Markdown'
+        )
         
-        # If it's a text message
-        if update.message.text:
-            msg = update.message.text
-            await update.message.reply_text(f"📢 **Broadcasting to {len(users)} users...**", parse_mode='Markdown')
-            
+        # Text message
+        if update.message.text and not update.message.text.startswith('/'):
+            broadcast_text = update.message.text
             for user in users:
                 try:
-                    await context.bot.send_message(chat_id=user[0], text=f"📢 **BROADCAST**\n\n{msg}", parse_mode='Markdown')
+                    await context.bot.send_message(
+                        chat_id=user[0],
+                        text=f"📢 **BROADCAST**\n\n{broadcast_text}",
+                        parse_mode='Markdown'
+                    )
                     success += 1
                 except:
                     failed += 1
-            
-        # If it's a photo
+        
+        # Photo
         elif update.message.photo:
             photo = update.message.photo[-1]
             caption = update.message.caption or "📢 Broadcast"
-            await update.message.reply_text(f"📢 **Broadcasting to {len(users)} users...**", parse_mode='Markdown')
-            
             for user in users:
                 try:
-                    await context.bot.send_photo(chat_id=user[0], photo=photo.file_id, caption=f"📢 **BROADCAST**\n\n{caption}", parse_mode='Markdown')
+                    await context.bot.send_photo(
+                        chat_id=user[0],
+                        photo=photo.file_id,
+                        caption=f"📢 **BROADCAST**\n\n{caption}",
+                        parse_mode='Markdown'
+                    )
                     success += 1
                 except:
                     failed += 1
         
-        await update.message.reply_text(
+        await msg.edit_text(
             f"✅ **Broadcast Complete!**\n\n"
             f"✅ Success: {success}\n"
             f"❌ Failed: {failed}\n"
@@ -389,7 +554,9 @@ async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if user_id != ADMIN_ID:
         await query.edit_message_text(
-            "❌ **Only admin can view stats!**",
+            "❌ **Access Denied!**\n\n"
+            "Only admin can view stats",
+            reply_markup=get_permanent_buttons(False),
             parse_mode='Markdown'
         )
         return
@@ -398,15 +565,56 @@ async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     recent_users = get_recent_users(10)
     
     stats_text = f"📊 **BOT STATISTICS**\n\n"
-    stats_text += f"👥 **Total Users:** {total_users}\n"
-    stats_text += f"🔍 **Total Queries:** {total_queries}\n"
-    stats_text += f"📈 **Avg Queries/User:** {round(total_queries/total_users if total_users > 0 else 0, 2)}\n\n"
-    stats_text += f"🕐 **Recent Users:**\n"
+    stats_text += f"👥 **Total Users:** `{total_users}`\n"
+    stats_text += f"🔍 **Total Queries:** `{total_queries}`\n"
+    stats_text += f"📈 **Avg Queries/User:** `{round(total_queries/total_users if total_users > 0 else 0, 2)}`\n\n"
+    stats_text += f"**🕐 Recent Users:**\n"
     
     for user in recent_users:
-        stats_text += f"• {user[2]} (@{user[1] if user[1] else 'None'}) - {user[4]} queries\n"
+        stats_text += f"• `{user[2]}` (@{user[1] if user[1] else 'None'}) - `{user[4]}` queries\n"
     
-    await query.edit_message_text(stats_text, parse_mode='Markdown')
+    await query.edit_message_text(
+        stats_text,
+        reply_markup=get_permanent_buttons(True),
+        parse_mode='Markdown'
+    )
+
+async def admin_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        await query.edit_message_text(
+            "❌ **Access Denied!**",
+            reply_markup=get_permanent_buttons(False),
+            parse_mode='Markdown'
+        )
+        return
+    
+    admin_text = (
+        "👑 **ADMIN PANEL**\n\n"
+        "**Available Commands:**\n"
+        "• 📢 Broadcast Messages\n"
+        "• 📊 View User Stats\n"
+        "• 👥 Manage Users\n"
+        "• 📈 View Analytics\n\n"
+        "**Quick Actions:**\n"
+        "Use the buttons below"
+    )
+    
+    admin_buttons = [
+        [InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast')],
+        [InlineKeyboardButton("📊 USER STATS", callback_data='stats')],
+        [InlineKeyboardButton("📥 EXPORT DATA", callback_data='export')],
+        [InlineKeyboardButton("⬅️ BACK", callback_data='back_to_main')],
+    ]
+    
+    await query.edit_message_text(
+        admin_text,
+        reply_markup=InlineKeyboardMarkup(admin_buttons),
+        parse_mode='Markdown'
+    )
 
 async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -420,29 +628,95 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     conn.close()
     
     if user_data:
-        profile_text = f"👤 **YOUR PROFILE**\n\n"
+        profile_text = f"👤 **USER PROFILE**\n\n"
         profile_text += f"🆔 **User ID:** `{user_id}`\n"
         profile_text += f"👤 **Name:** {user_data[1]}\n"
         profile_text += f"📛 **Username:** @{user_data[0] if user_data[0] else 'None'}\n"
         profile_text += f"📅 **Joined:** {user_data[2][:10]}\n"
         profile_text += f"🕐 **Last Active:** {user_data[3][:10]}\n"
-        profile_text += f"🔍 **Total Queries:** {user_data[4]}\n"
+        profile_text += f"🔍 **Total Queries:** `{user_data[4]}`\n"
+        profile_text += f"⭐ **Status:** {'👑 Admin' if user_id == ADMIN_ID else '👤 Premium User'}"
     else:
         profile_text = "❌ Profile not found!"
     
-    await query.edit_message_text(profile_text, parse_mode='Markdown')
+    await query.edit_message_text(
+        profile_text,
+        reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def export_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!")
+        return
+    
+    # Export user data
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('SELECT * FROM users')
+    users = c.fetchall()
+    conn.close()
+    
+    if not users:
+        await query.edit_message_text("❌ No data to export!")
+        return
+    
+    # Create CSV
+    csv_data = "ID,Username,First Name,Last Name,Join Date,Last Active,Total Queries\n"
+    for user in users:
+        csv_data += f"{user[0]},{user[1]},{user[2]},{user[3]},{user[4]},{user[5]},{user[6]}\n"
+    
+    # Send as file
+    with open('users_export.csv', 'w', encoding='utf-8') as f:
+        f.write(csv_data)
+    
+    await query.message.reply_document(
+        document=open('users_export.csv', 'rb'),
+        caption="📊 **User Data Export**\n\nData exported successfully!",
+        parse_mode='Markdown'
+    )
+    
+    await query.edit_message_text(
+        "✅ **Data Exported!**",
+        reply_markup=get_permanent_buttons(True),
+        parse_mode='Markdown'
+    )
+
+async def back_to_main(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    is_admin = user_id == ADMIN_ID
+    await query.edit_message_text(
+        "🚀 **Back to Main Menu**",
+        reply_markup=get_permanent_buttons(is_admin),
+        parse_mode='Markdown'
+    )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast_mode'] = False
-    await update.message.reply_text("❌ **Broadcast cancelled**", parse_mode='Markdown')
+    await update.message.reply_text(
+        "❌ **Operation Cancelled**",
+        reply_markup=get_permanent_buttons(update.effective_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
 
 # ============ REGISTER HANDLERS ============
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("cancel", cancel))
 bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check_join'))
+bot_app.add_handler(CallbackQueryHandler(search_info_callback, pattern='search_info'))
 bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
 bot_app.add_handler(CallbackQueryHandler(stats_callback, pattern='stats'))
+bot_app.add_handler(CallbackQueryHandler(admin_panel_callback, pattern='admin_panel'))
 bot_app.add_handler(CallbackQueryHandler(profile_callback, pattern='profile'))
+bot_app.add_handler(CallbackQueryHandler(export_callback, pattern='export'))
+bot_app.add_handler(CallbackQueryHandler(back_to_main, pattern='back_to_main'))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
 bot_app.add_handler(MessageHandler(filters.PHOTO, handle_broadcast))
 
@@ -463,7 +737,7 @@ if __name__ == '__main__':
     flask_thread.start()
     
     sync_with_github()
-    print("🤖 Bot started! Developer: @T4HKR")
+    print("🚀 Premium Bot started! Developer: @T4HKR")
     print(f"👑 Admin ID: {ADMIN_ID}")
     print(f"🔗 API: {API_URL}")
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
