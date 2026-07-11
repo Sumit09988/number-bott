@@ -1,6 +1,5 @@
 # main.py
 import os
-import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import requests
@@ -10,9 +9,7 @@ import threading
 import sqlite3
 from datetime import datetime
 import io
-import re
 
-# ============ CONFIG ============
 TOKEN = "8617423223:AAHUcMIDMWXVN0rpiWECM1v-3JucJzObiQs"
 CHANNEL_1 = "https://t.me/SUMITNETW0RK"
 CHANNEL_2 = "https://t.me/numberleakks"
@@ -20,41 +17,25 @@ CHANNEL_3 = "https://t.me/lokixnetwork"
 ADMIN_ID = 7515864015
 API_URL = "https://numinfo-eris.vercel.app/info?key=sumit128&id="
 
-# ============ DATABASE SETUP ============
 def init_db():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users
-                 (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, 
-                  last_name TEXT, join_date TEXT, last_active TEXT, total_queries INTEGER DEFAULT 0)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS queries
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, 
-                  number TEXT, timestamp TEXT, result TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, join_date TEXT, last_active TEXT, total_queries INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS queries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, number TEXT, timestamp TEXT, result TEXT)''')
     conn.commit()
     conn.close()
 
 def add_user(user_id, username, first_name, last_name):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, join_date, last_active, total_queries)
-                 VALUES (?, ?, ?, ?, ?, ?, 0)''', 
-              (user_id, username, first_name, last_name, datetime.now().isoformat(), datetime.now().isoformat()))
+    c.execute('''INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, join_date, last_active, total_queries) VALUES (?, ?, ?, ?, ?, ?, 0)''', (user_id, username, first_name, last_name, datetime.now().isoformat(), datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
 def update_user_activity(user_id):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''UPDATE users SET last_active = ?, total_queries = total_queries + 1 
-                 WHERE user_id = ?''', (datetime.now().isoformat(), user_id))
-    conn.commit()
-    conn.close()
-
-def log_query(user_id, number, result):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''INSERT INTO queries (user_id, number, timestamp, result) 
-                 VALUES (?, ?, ?, ?)''', (user_id, number, datetime.now().isoformat(), result[:500]))
+    c.execute('''UPDATE users SET last_active = ?, total_queries = total_queries + 1 WHERE user_id = ?''', (datetime.now().isoformat(), user_id))
     conn.commit()
     conn.close()
 
@@ -76,30 +57,12 @@ def get_user_stats():
     conn.close()
     return total_users, total_queries
 
-def get_recent_users(limit=10):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('''SELECT user_id, username, first_name, last_active, total_queries 
-                 FROM users ORDER BY last_active DESC LIMIT ?''', (limit,))
-    users = c.fetchall()
-    conn.close()
-    return users
-
-def get_total_queries_for_user(user_id):
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT total_queries FROM users WHERE user_id = ?', (user_id,))
-    result = c.fetchone()
-    conn.close()
-    return result[0] if result else 0
-
-# ============ FLASK SERVER ============
 app = Flask(__name__)
 
 @app.route('/')
 def home():
     total_users, total_queries = get_user_stats()
-    return f"🚀 Eric x Info Bot Active\n👨‍💻 Developer: @T4HKR\n👥 Total Users: {total_users}\n🔍 Total Queries: {total_queries}"
+    return f"Bot Active | Users: {total_users} | Queries: {total_queries}"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -110,452 +73,186 @@ def webhook():
 def run_flask():
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))
 
-# ============ TELEGRAM BOT ============
 bot_app = Application.builder().token(TOKEN).build()
 
-# ============ PERMANENT FLOATING BUTTONS ============
-def get_permanent_buttons(is_admin=False):
-    buttons = [
-        [InlineKeyboardButton("📌 Start Now", callback_data='search_info')],
-        [InlineKeyboardButton("📊 Menu", callback_data='menu')],
-    ]
-    
+def get_buttons(is_admin=False):
+    buttons = [[InlineKeyboardButton("🔍 Search", callback_data='search')], [InlineKeyboardButton("📊 Menu", callback_data='menu')]]
     if is_admin:
-        buttons.append([InlineKeyboardButton("👑 Admin Panel", callback_data='admin_panel')])
-    
+        buttons.append([InlineKeyboardButton("👑 Admin", callback_data='admin')])
     buttons.append([InlineKeyboardButton("👤 Profile", callback_data='profile')])
-    
     return InlineKeyboardMarkup(buttons)
 
-# ============ FORCE JOIN CHECK ============
 async def is_member(user_id, context):
-    try:
-        channels = ["@SUMITNETW0RK", "@numberleakks", "@lokixnetwork"]
-        for channel in channels:
-            try:
-                member = await context.bot.get_chat_member(channel, user_id)
-                if member.status in ['left', 'kicked']:
-                    return False
-            except:
+    channels = ["@SUMITNETW0RK", "@numberleakks", "@lokixnetwork"]
+    for channel in channels:
+        try:
+            member = await context.bot.get_chat_member(channel, user_id)
+            if member.status in ['left', 'kicked']:
                 return False
-        return True
-    except:
-        return False
+        except:
+            return False
+    return True
 
-# ============ API FUNCTION - EXACT FORMAT ============
-async def get_number_info(number, context, update):
-    """Fetch and format exactly like your example"""
+async def get_number_info(number, update):
     try:
         response = requests.get(f"{API_URL}{number}", timeout=20)
-        
         if response.status_code == 200:
             content_type = response.headers.get('content-type', '')
-            
-            # If PDF, send directly
             if 'application/pdf' in content_type:
                 pdf_file = io.BytesIO(response.content)
-                await update.message.reply_document(
-                    document=InputFile(pdf_file, filename=f"search_result_{number}_data.pdf"),
-                    caption=f"✅ Search Completed Successfully!\n\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR",
-                    parse_mode='Markdown'
-                )
+                await update.message.reply_document(document=InputFile(pdf_file, filename=f"{number}_info.pdf"), caption=f"✅ Search Completed!\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR", parse_mode='Markdown')
                 return "PDF_SENT"
-            
-            # Try JSON
             try:
                 data = response.json()
                 if data.get('success') and data.get('pdf_url'):
                     pdf_response = requests.get(data['pdf_url'], timeout=20)
                     if pdf_response.status_code == 200:
                         pdf_file = io.BytesIO(pdf_response.content)
-                        await update.message.reply_document(
-                            document=InputFile(pdf_file, filename=f"search_result_{number}_data.pdf"),
-                            caption=f"✅ Search Completed Successfully!\n\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR",
-                            parse_mode='Markdown'
-                        )
+                        await update.message.reply_document(document=InputFile(pdf_file, filename=f"{number}_info.pdf"), caption=f"✅ Search Completed!\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR", parse_mode='Markdown')
                         return "PDF_SENT"
-                
                 if data.get('success') and data.get('data'):
-                    return format_exact_style(data['data'], number)
-                    
-            except json.JSONDecodeError:
+                    d = data['data']
+                    result = f"📋 NUMBER INFO RESULT\nTarget: {number}\n{'='*30}\n\nName    : {d.get('name', 'N/A')}\nFather  : {d.get('father', 'N/A')}\nAddress : {d.get('address', 'N/A')}\nAlt Num : {d.get('alt_num', '')}\nCircle  : {d.get('circle', 'N/A')}\nID      : {d.get('id', 'N/A')}\nEmail   : {d.get('email', '')}\n\n{'-'*30}\n\nName    : {d.get('name', 'N/A')}\nFather  : {d.get('father', 'N/A')}\nAddress : {d.get('address', 'N/A')}\nAlt Num : {d.get('alt_num', '')}\nCircle  : {d.get('circle', 'N/A')}\nID      : {d.get('id', 'N/A')}\nEmail   : {d.get('email', '')}\n\n{'='*30}"
+                    return result
+            except:
                 pass
-        
-        # Fallback demo with exact format
-        return format_exact_demo(number)
-        
-    except Exception as e:
-        return format_exact_demo(number)
-
-def format_exact_style(data, number):
-    """Format exactly like your example with duplicate entries"""
-    try:
-        if isinstance(data, dict):
-            # Get main data
-            name = data.get('name', 'SANDHYA SINGH')
-            father = data.get('father', 'SUNEEL KUMAR SINGH')
-            address = data.get('address', 'W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203')
-            alt_num = data.get('alt_num', data.get('alternative_number', ''))
-            circle = data.get('circle', data.get('operator', 'UP EAST'))
-            id_num = data.get('id', data.get('aadhar', '322123881901'))
-            email = data.get('email', '')
-            
-            # Format with duplicate entry
-            result = f"📋 NUMBER INFO RESULT\n"
-            result += f"Target: {number}\n"
-            result += f"{'='*30}\n\n"
-            
-            # First entry
-            result += f"Name    : {name}\n"
-            result += f"Father  : {father}\n"
-            result += f"Address : {address}\n"
-            result += f"Alt Num : {alt_num}\n"
-            result += f"Circle  : {circle}\n"
-            result += f"ID      : {id_num}\n"
-            result += f"Email   : {email}\n"
-            
-            result += f"\n{'-'*30}\n\n"
-            
-            # Duplicate entry (same data)
-            result += f"Name    : {name}\n"
-            result += f"Father  : {father}\n"
-            result += f"Address : {address}\n"
-            result += f"Alt Num : {alt_num}\n"
-            result += f"Circle  : {circle}\n"
-            result += f"ID      : {id_num}\n"
-            result += f"Email   : {email}\n"
-            
-            result += f"\n{'='*30}\n"
-            
-            return result
-        
-        return format_exact_demo(number)
     except:
-        return format_exact_demo(number)
+        pass
+    return f"📋 NUMBER INFO RESULT\nTarget: {number}\n{'='*30}\n\nName    : SANDHYA SINGH\nFather  : SUNEEL KUMAR SINGH\nAddress : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\nAlt Num : \nCircle  : UP EAST\nID      : 322123881901\nEmail   : \n\n{'-'*30}\n\nName    : SANDHYA SINGH\nFather  : SUNEEL KUMAR SINGH\nAddress : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\nAlt Num : \nCircle  : UP EAST\nID      : 322123881901\nEmail   : \n\n{'='*30}"
 
-def format_exact_demo(number):
-    """Demo data with exact format - duplicate entries"""
-    result = f"📋 NUMBER INFO RESULT\n"
-    result += f"Target: {number}\n"
-    result += f"{'='*30}\n\n"
-    
-    # First entry
-    result += f"Name    : SANDHYA SINGH\n"
-    result += f"Father  : SUNEEL KUMAR SINGH\n"
-    result += f"Address : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\n"
-    result += f"Alt Num : \n"
-    result += f"Circle  : UP EAST\n"
-    result += f"ID      : 322123881901\n"
-    result += f"Email   : \n"
-    
-    result += f"\n{'-'*30}\n\n"
-    
-    # Duplicate entry
-    result += f"Name    : SANDHYA SINGH\n"
-    result += f"Father  : SUNEEL KUMAR SINGH\n"
-    result += f"Address : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\n"
-    result += f"Alt Num : \n"
-    result += f"Circle  : UP EAST\n"
-    result += f"ID      : 322123881901\n"
-    result += f"Email   : \n"
-    
-    result += f"\n{'='*30}"
-    
-    return result
-
-# ============ NOTIFICATION TO ADMIN ============
-async def notify_admin(context, message):
-    try:
-        await context.bot.send_message(chat_id=ADMIN_ID, text=message, parse_mode='Markdown')
-    except Exception as e:
-        print(f"Failed to notify admin: {e}")
-
-# ============ HANDLERS ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    user_id = user.id
-    user_name = user.first_name
-    
-    add_user(user_id, user.username, user.first_name, user.last_name)
-    
-    await notify_admin(
-        context,
-        f"🆕 **New User Joined!**\n"
-        f"👤 User: {user.first_name}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📊 Total Users: {get_total_users()}"
-    )
-    
-    is_member_flag = await is_member(user_id, context)
-    
-    if not is_member_flag:
-        keyboard = [
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I HAVE JOINED ALL", callback_data='check_join')],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "**⚠️ FORCE JOIN REQUIRED**\n\n"
-            "Please join all 3 channels to use this bot!",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+    add_user(user.id, user.username, user.first_name, user.last_name)
+    if not await is_member(user.id, context):
+        keyboard = [[InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)], [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)], [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)], [InlineKeyboardButton("✅ Joined All", callback_data='check')]]
+        await update.message.reply_text("⚠️ Please join all 3 channels first!", reply_markup=InlineKeyboardMarkup(keyboard))
         return
-    
-    welcome_text = (
-        f"**📌 Eric x Info Bot**\n"
-        f"151 monthly users\n\n"
-        f"Purchase an Unlimited Plan and enjoy uninterrupted access.\n"
-        f"/buy_plan\n\n"
-        f"📌 Start searching now and enjoy fast results!\n\n"
-        f"📋 Hello {user_name}\n"
-        f"ID {user_id}\n\n"
-        f"**Start Now**\n\n"
-        f"**July 11**"
-    )
-    
-    is_admin = user_id == ADMIN_ID
-    await update.message.reply_text(
-        welcome_text,
-        reply_markup=get_permanent_buttons(is_admin),
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(f"📌 Eric x Info Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {user.first_name}\nID {user.id}\n\nStart Now\nJuly 11", reply_markup=get_buttons(user.id == ADMIN_ID), parse_mode='Markdown')
 
 async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    user_name = query.from_user.first_name
-    
-    is_member_flag = await is_member(user_id, context)
-    
-    if is_member_flag:
-        is_admin = user_id == ADMIN_ID
-        welcome_text = (
-            f"**📌 Eric x Info Bot**\n"
-            f"151 monthly users\n\n"
-            f"Purchase an Unlimited Plan and enjoy uninterrupted access.\n"
-            f"/buy_plan\n\n"
-            f"📌 Start searching now and enjoy fast results!\n\n"
-            f"📋 Hello {user_name}\n"
-            f"ID {user_id}\n\n"
-            f"**Start Now**\n\n"
-            f"**July 11**"
-        )
-        await query.edit_message_text(
-            welcome_text,
-            reply_markup=get_permanent_buttons(is_admin),
-            parse_mode='Markdown'
-        )
+    if await is_member(query.from_user.id, context):
+        await query.edit_message_text(f"📌 Eric x Info Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {query.from_user.first_name}\nID {query.from_user.id}\n\nStart Now\nJuly 11", reply_markup=get_buttons(query.from_user.id == ADMIN_ID), parse_mode='Markdown')
     else:
-        keyboard = [
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I HAVE JOINED ALL", callback_data='check_join')],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.edit_message_text(
-            "**❌ Still not joined all channels!**\n\n"
-            "Please join all 3 channels then try again.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+        await query.edit_message_text("❌ Still not joined all channels!")
 
 async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    user_id = user.id
-    user_name = user.first_name
-    
-    if not await is_member(user_id, context):
-        keyboard = [
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 JOIN CHANNEL 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I HAVE JOINED ALL", callback_data='check_join')],
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "**⚠️ Please join all channels first!**",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
+    if not await is_member(user.id, context):
+        await update.message.reply_text("⚠️ Please join all channels first!")
         return
-    
     number = update.message.text.strip()
-    
-    # Handle /num command
     if number.startswith('/num '):
         number = number.replace('/num ', '').strip()
-    elif number.startswith('/num'):
-        await update.message.reply_text(
-            "❌ **Invalid Command!**\n\n"
-            "Usage: `/num 9876543210`",
-            parse_mode='Markdown'
-        )
-        return
-    
     if not number.isdigit() or len(number) < 10:
-        await update.message.reply_text(
-            f"❌ **Please send a valid 10-digit number**\n\n"
-            f"Example: `/num 9876543210`",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text("❌ Send a valid 10-digit number\nExample: /num 9876543210")
         return
-    
-    msg = await update.message.reply_text(
-        "⏳ Searching...",
-        parse_mode='Markdown'
-    )
-    
-    update_user_activity(user_id)
-    
-    result = await get_number_info(number, context, update)
-    
+    msg = await update.message.reply_text("⏳ Searching...")
+    update_user_activity(user.id)
+    result = await get_number_info(number, update)
     if result != "PDF_SENT":
-        await msg.edit_text(
-            result,
-            reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
-            parse_mode='Markdown'
-        )
+        await msg.edit_text(result, reply_markup=get_buttons(user.id == ADMIN_ID), parse_mode='Markdown')
     else:
         await msg.delete()
-    
-    log_query(user_id, number, result if result != "PDF_SENT" else "PDF_SENT")
-    
-    await notify_admin(
-        context,
-        f"🔍 **New Query**\n"
-        f"👤 User: {user_name}\n"
-        f"🆔 ID: `{user_id}`\n"
-        f"📱 Number: `{number}`\n"
-        f"📊 Total Queries: {get_total_queries_for_user(user_id)}"
-    )
 
-async def search_info_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    
-    await query.edit_message_text(
-        "🔍 **SEARCH MODE**\n\n"
-        "Send a 10-digit number:\n"
-        "• `/num 9876543210`\n"
-        "• Or just type: `9876543210`\n\n"
-        "⚠️ Without +91",
-        reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text("🔍 Send a 10-digit number\nExample: /num 9876543210", reply_markup=get_buttons(query.from_user.id == ADMIN_ID), parse_mode='Markdown')
 
 async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    user_name = query.from_user.first_name
-    
-    menu_text = (
-        f"📌 **Eric x Info Bot**\n"
-        f"151 monthly users\n\n"
-        f"📋 Hello {user_name}\n"
-        f"ID {user_id}\n\n"
-        f"**Available Commands:**\n"
-        f"• /num [number] - Search info\n"
-        f"• /start - Restart bot\n"
-        f"• /buy_plan - Purchase plan\n\n"
-        f"**Quick Actions:**\n"
-        f"Use buttons below"
-    )
-    
-    await query.edit_message_text(
-        menu_text,
-        reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def buy_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "💰 **Purchase Unlimited Plan**\n\n"
-        "🎯 **Unlimited Plan Features:**\n"
-        "• Unlimited searches\n"
-        "• Priority access\n"
-        "• PDF reports\n"
-        "• Premium support\n\n"
-        "📌 Contact @T4HKR for pricing\n\n"
-        "**Developer:** @T4HKR",
-        parse_mode='Markdown'
-    )
-
-async def admin_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    
-    if user_id != ADMIN_ID:
-        await query.edit_message_text(
-            "❌ **Access Denied!**",
-            reply_markup=get_permanent_buttons(False),
-            parse_mode='Markdown'
-        )
-        return
-    
-    admin_text = (
-        "👑 **ADMIN PANEL**\n\n"
-        "**Available Actions:**\n"
-        "• 📢 Broadcast Messages\n"
-        "• 📊 View User Stats\n"
-        "• 📥 Export User Data\n\n"
-        "**Quick Actions:**\n"
-        "Use the buttons below"
-    )
-    
-    admin_buttons = [
-        [InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast')],
-        [InlineKeyboardButton("📊 USER STATS", callback_data='stats')],
-        [InlineKeyboardButton("📥 EXPORT DATA", callback_data='export')],
-        [InlineKeyboardButton("⬅️ BACK", callback_data='back_to_main')],
-    ]
-    
-    await query.edit_message_text(
-        admin_text,
-        reply_markup=InlineKeyboardMarkup(admin_buttons),
-        parse_mode='Markdown'
-    )
+    await query.edit_message_text(f"📌 Eric x Info Bot\n151 monthly users\n\n📋 Hello {query.from_user.first_name}\nID {query.from_user.id}\n\nCommands:\n/num [number] - Search\n/start - Restart\n/buy_plan - Purchase plan", reply_markup=get_buttons(query.from_user.id == ADMIN_ID), parse_mode='Markdown')
 
 async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('SELECT username, first_name, join_date, last_active, total_queries FROM users WHERE user_id = ?', (user_id,))
-    user_data = c.fetchone()
+    c.execute('SELECT first_name, join_date, total_queries FROM users WHERE user_id = ?', (query.from_user.id,))
+    data = c.fetchone()
     conn.close()
-    
-    if user_data:
-        profile_text = f"👤 **USER PROFILE**\n\n"
-        profile_text += f"🆔 **ID:** `{user_id}`\n"
-        profile_text += f"👤 **Name:** {user_data[1]}\n"
-        profile_text += f"📛 **Username:** @{user_data[0] if user_data[0] else 'None'}\n"
-        profile_text += f"📅 **Joined:** {user_data[2][:10]}\n"
-        profile_text += f"🕐 **Last Active:** {user_data[3][:10]}\n"
-        profile_text += f"🔍 **Total Queries:** `{user_data[4]}`\n"
-        profile_text += f"⭐ **Status:** {'👑 Admin' if user_id == ADMIN_ID else '👤 Premium User'}"
+    if data:
+        await query.edit_message_text(f"👤 Profile\nName: {data[0]}\nJoined: {data[1][:10]}\nQueries: {data[2]}", reply_markup=get_buttons(query.from_user.id == ADMIN_ID), parse_mode='Markdown')
     else:
-        profile_text = "❌ Profile not found!"
-    
-    await query.edit_message_text(
-        profile_text,
-        reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
+        await query.edit_message_text("❌ Profile not found!")
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!", reply_markup=get_buttons(False))
+        return
+    total_users, total_queries = get_user_stats()
+    await query.edit_message_text(f"👑 Admin Panel\nTotal Users: {total_users}\nTotal Queries: {total_queries}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')], [InlineKeyboardButton("📊 Stats", callback_data='stats')], [InlineKeyboardButton("⬅️ Back", callback_data='back')]]))
 
 async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    user_id = query.from_user.id
-    
-    if user_id != ADMIN_ID:
-        await query.edit_
+    if query.from_user.id != ADMIN_ID:
+        return
+    await query.edit_message_text("📢 Send message to broadcast\nType /cancel to stop")
+    context.user_data['broadcast_mode'] = True
+
+async def stats_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    if query.from_user.id != ADMIN_ID:
+        return
+    total_users, total_queries = get_user_stats()
+    await query.edit_message_text(f"📊 Statistics\nTotal Users: {total_users}\nTotal Queries: {total_queries}", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅️ Back", callback_data='admin')]]))
+
+async def back_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await admin_callback(update, context)
+
+async def buy_plan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("💰 Unlimited Plan\n• Unlimited searches\n• Priority access\n• PDF reports\n\nContact @T4HKR for pricing", parse_mode='Markdown')
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['broadcast_mode'] = False
+    await update.message.reply_text("❌ Cancelled")
+
+async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get('broadcast_mode'):
+        conn = sqlite3.connect('users.db')
+        c = conn.cursor()
+        c.execute('SELECT user_id FROM users')
+        users = c.fetchall()
+        conn.close()
+        if not users:
+            await update.message.reply_text("❌ No users!")
+            return
+        success = 0
+        for user in users:
+            try:
+                await context.bot.send_message(chat_id=user[0], text=f"📢 BROADCAST\n\n{update.message.text}")
+                success += 1
+            except:
+                pass
+        await update.message.reply_text(f"✅ Broadcast sent to {success} users")
+        context.user_data['broadcast_mode'] = False
+
+bot_app.add_handler(CommandHandler("start", start))
+bot_app.add_handler(CommandHandler("cancel", cancel))
+bot_app.add_handler(CommandHandler("buy_plan", buy_plan))
+bot_app.add_handler(CommandHandler("num", handle_number))
+bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check'))
+bot_app.add_handler(CallbackQueryHandler(search_callback, pattern='search'))
+bot_app.add_handler(CallbackQueryHandler(menu_callback, pattern='menu'))
+bot_app.add_handler(CallbackQueryHandler(profile_callback, pattern='profile'))
+bot_app.add_handler(CallbackQueryHandler(admin_callback, pattern='admin'))
+bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
+bot_app.add_handler(CallbackQueryHandler(stats_callback, pattern='stats'))
+bot_app.add_handler(CallbackQueryHandler(back_callback, pattern='back'))
+bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
+bot_app.add_handler(MessageHandler(filters.PHOTO, handle_broadcast))
+
+if __name__ == '__main__':
+    init_db()
+    threading.Thread(target=run_flask, daemon=True).start()
+    print("Bot Started! Developer: @T4HKR")
+    bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
