@@ -39,14 +39,6 @@ def update_user_activity(user_id):
     conn.commit()
     conn.close()
 
-def get_total_users():
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT COUNT(*) FROM users')
-    count = c.fetchone()[0]
-    conn.close()
-    return count
-
 app = Flask(__name__)
 
 @app.route('/')
@@ -64,6 +56,9 @@ def run_flask():
 
 bot_app = Application.builder().token(TOKEN).build()
 
+# Store users who clicked "Joined All"
+joined_users = set()
+
 def get_buttons(is_admin=False):
     buttons = [
         [InlineKeyboardButton("🔍 Search", callback_data='search')],
@@ -73,17 +68,6 @@ def get_buttons(is_admin=False):
         buttons.append([InlineKeyboardButton("👑 Admin", callback_data='admin')])
     buttons.append([InlineKeyboardButton("👤 Profile", callback_data='profile')])
     return InlineKeyboardMarkup(buttons)
-
-async def is_member(user_id, context):
-    channels = ["@SUMITNETW0RK", "@numberleakks", "@lokixnetwork"]
-    for channel in channels:
-        try:
-            member = await context.bot.get_chat_member(channel, user_id)
-            if member.status in ['left', 'kicked']:
-                return False
-        except:
-            return False
-    return True
 
 async def get_number_info(number):
     try:
@@ -113,25 +97,24 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     add_user(user.id, user.username, user.first_name, user.last_name)
     
-    is_member_flag = await is_member(user.id, context)
-    
-    if not is_member_flag:
-        keyboard = [
-            [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
-        ]
+    # Check if user already verified
+    if user.id in joined_users:
         await update.message.reply_text(
-            "⚠️ Please join all 3 channels first!",
-            reply_markup=InlineKeyboardMarkup(keyboard)
+            f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {user.first_name}\nID {user.id}\n\nStart Now\nJuly 11",
+            reply_markup=get_buttons(user.id == ADMIN_ID),
+            parse_mode='Markdown'
         )
         return
     
+    keyboard = [
+        [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
+        [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
+        [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
+        [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
+    ]
     await update.message.reply_text(
-        f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {user.first_name}\nID {user.id}\n\nStart Now\nJuly 11",
-        reply_markup=get_buttons(user.id == ADMIN_ID),
-        parse_mode='Markdown'
+        "⚠️ Please join all 3 channels first!\n\nAfter joining, click the button below:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
 async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -139,32 +122,22 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     
-    is_member_flag = await is_member(user_id, context)
+    # Mark user as joined
+    joined_users.add(user_id)
     
-    if is_member_flag:
-        await query.edit_message_text(
-            f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {query.from_user.first_name}\nID {user_id}\n\nStart Now\nJuly 11",
-            reply_markup=get_buttons(user_id == ADMIN_ID),
-            parse_mode='Markdown'
-        )
-    else:
-        keyboard = [
-            [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
-            [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
-            [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
-            [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
-        ]
-        await query.edit_message_text(
-            "❌ Still not joined all channels! Please join all 3 channels first.",
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+    await query.edit_message_text(
+        f"📌 Sumit Osint Bot\n151 monthly users\n\nPurchase an Unlimited Plan: /buy_plan\n\n📌 Start searching now!\n\n📋 Hello {query.from_user.first_name}\nID {user_id}\n\nStart Now\nJuly 11",
+        reply_markup=get_buttons(user_id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
 
-async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
+    text = update.message.text.strip()
     
-    is_member_flag = await is_member(user_id, context)
-    if not is_member_flag:
+    # Check if user verified
+    if user_id not in joined_users:
         keyboard = [
             [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
             [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
@@ -177,25 +150,22 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    number = update.message.text.strip()
-    if number.startswith('/num '):
-        number = number.replace('/num ', '').strip()
-    
-    if not number.isdigit() or len(number) < 10:
-        await update.message.reply_text("❌ Send a valid 10-digit number\nExample: /num 9876543210")
+    # Check if it's a number
+    if not text.isdigit() or len(text) < 10:
+        await update.message.reply_text("❌ Send a valid 10-digit number\nExample: 9876543210")
         return
     
     msg = await update.message.reply_text("⏳ Searching...")
     update_user_activity(user_id)
     
-    result_type, result_data = await get_number_info(number)
+    result_type, result_data = await get_number_info(text)
     
     if result_type == "PDF":
         pdf_file = io.BytesIO(result_data)
         await msg.delete()
         await update.message.reply_document(
-            document=InputFile(pdf_file, filename=f"search_result_{number}.pdf"),
-            caption=f"✅ Search Completed!\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR",
+            document=InputFile(pdf_file, filename=f"search_result_{text}.pdf"),
+            caption=f"✅ Search Completed!\nTarget: {text}\n\n👨‍💻 Developer: @T4HKR",
             parse_mode='Markdown'
         )
     else:
@@ -209,7 +179,7 @@ async def search_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        "🔍 Send a 10-digit number\nExample: /num 9876543210",
+        "🔍 Send a 10-digit number\nExample: 9876543210",
         reply_markup=get_buttons(query.from_user.id == ADMIN_ID),
         parse_mode='Markdown'
     )
@@ -218,7 +188,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     await query.edit_message_text(
-        f"📌 Sumit Osint Bot\n151 monthly users\n\n📋 Hello {query.from_user.first_name}\nID {query.from_user.id}\n\nCommands:\n/num [number] - Search\n/start - Restart\n/buy_plan - Purchase plan",
+        f"📌 Sumit Osint Bot\n151 monthly users\n\n📋 Hello {query.from_user.first_name}\nID {query.from_user.id}\n\nCommands:\n/start - Restart\n/buy_plan - Purchase plan\n\nSend any 10-digit number to search",
         reply_markup=get_buttons(query.from_user.id == ADMIN_ID),
         parse_mode='Markdown'
     )
@@ -297,10 +267,10 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"✅ Broadcast sent to {success} users")
         context.user_data['broadcast_mode'] = False
 
+# Register handlers
 bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("cancel", cancel))
 bot_app.add_handler(CommandHandler("buy_plan", buy_plan))
-bot_app.add_handler(CommandHandler("num", handle_number))
 bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check_join'))
 bot_app.add_handler(CallbackQueryHandler(search_callback, pattern='search'))
 bot_app.add_handler(CallbackQueryHandler(menu_callback, pattern='menu'))
@@ -308,11 +278,12 @@ bot_app.add_handler(CallbackQueryHandler(profile_callback, pattern='profile'))
 bot_app.add_handler(CallbackQueryHandler(admin_callback, pattern='admin'))
 bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
 bot_app.add_handler(CallbackQueryHandler(back_callback, pattern='back'))
-bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_number))
+bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 bot_app.add_handler(MessageHandler(filters.PHOTO, handle_broadcast))
 
 if __name__ == '__main__':
     init_db()
     threading.Thread(target=run_flask, daemon=True).start()
-    print("Bot Started! Developer: @T4HKR")
+    print("✅ Bot Started! Developer: @T4HKR")
+    print(f"👑 Admin ID: {ADMIN_ID}")
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
