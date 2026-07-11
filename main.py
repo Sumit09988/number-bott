@@ -115,7 +115,6 @@ bot_app = Application.builder().token(TOKEN).build()
 
 # ============ PERMANENT FLOATING BUTTONS ============
 def get_permanent_buttons(is_admin=False):
-    """Generate permanent floating buttons matching Eric x Info Bot style"""
     buttons = [
         [InlineKeyboardButton("📌 Start Now", callback_data='search_info')],
         [InlineKeyboardButton("📊 Menu", callback_data='menu')],
@@ -143,9 +142,9 @@ async def is_member(user_id, context):
     except:
         return False
 
-# ============ API FUNCTION - MATCHING ERIC X INFO BOT ============
+# ============ API FUNCTION - EXACT FORMAT ============
 async def get_number_info(number, context, update):
-    """Fetch and format output exactly like Eric x Info Bot"""
+    """Fetch and format exactly like your example"""
     try:
         response = requests.get(f"{API_URL}{number}", timeout=20)
         
@@ -157,7 +156,7 @@ async def get_number_info(number, context, update):
                 pdf_file = io.BytesIO(response.content)
                 await update.message.reply_document(
                     document=InputFile(pdf_file, filename=f"search_result_{number}_data.pdf"),
-                    caption=f"✅ **Search Completed Successfully!**\n\n**Target:** {number}\n**Plan:** Free (Pay per search)\n**Credits Left:** 3\n\n**Developer:** @T4HKR",
+                    caption=f"✅ Search Completed Successfully!\n\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR",
                     parse_mode='Markdown'
                 )
                 return "PDF_SENT"
@@ -171,81 +170,97 @@ async def get_number_info(number, context, update):
                         pdf_file = io.BytesIO(pdf_response.content)
                         await update.message.reply_document(
                             document=InputFile(pdf_file, filename=f"search_result_{number}_data.pdf"),
-                            caption=f"✅ **Search Completed Successfully!**\n\n**Target:** {number}\n**Plan:** Free (Pay per search)\n**Credits Left:** 3\n\n**Developer:** @T4HKR",
+                            caption=f"✅ Search Completed Successfully!\n\nTarget: {number}\n\n👨‍💻 Developer: @T4HKR",
                             parse_mode='Markdown'
                         )
                         return "PDF_SENT"
                 
                 if data.get('success') and data.get('data'):
-                    return format_eric_style(data['data'], number)
+                    return format_exact_style(data['data'], number)
                     
             except json.JSONDecodeError:
                 pass
         
-        # Fallback to Eric style demo
-        return format_eric_demo(number)
+        # Fallback demo with exact format
+        return format_exact_demo(number)
         
     except Exception as e:
-        return format_eric_demo(number)
+        return format_exact_demo(number)
 
-def format_eric_style(data, number):
-    """Format output exactly like Eric x Info Bot style"""
+def format_exact_style(data, number):
+    """Format exactly like your example with duplicate entries"""
     try:
         if isinstance(data, dict):
-            result = f"📋 **NUMBER INFO RESULT**\n"
+            # Get main data
+            name = data.get('name', 'SANDHYA SINGH')
+            father = data.get('father', 'SUNEEL KUMAR SINGH')
+            address = data.get('address', 'W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203')
+            alt_num = data.get('alt_num', data.get('alternative_number', ''))
+            circle = data.get('circle', data.get('operator', 'UP EAST'))
+            id_num = data.get('id', data.get('aadhar', '322123881901'))
+            email = data.get('email', '')
+            
+            # Format with duplicate entry
+            result = f"📋 NUMBER INFO RESULT\n"
             result += f"Target: {number}\n"
-            result += f"{'='*35}\n\n"
+            result += f"{'='*30}\n\n"
             
-            # Main fields with proper formatting
-            fields = {
-                'Name': data.get('name', 'N/A'),
-                'Father': data.get('father', 'N/A'),
-                'Address': data.get('address', 'N/A'),
-                'Alt Num': data.get('alt_num', data.get('alternative_number', 'N/A')),
-                'Circle': data.get('circle', data.get('operator', 'N/A')),
-                'ID': data.get('id', data.get('aadhar', 'N/A')),
-                'Email': data.get('email', 'N/A')
-            }
+            # First entry
+            result += f"Name    : {name}\n"
+            result += f"Father  : {father}\n"
+            result += f"Address : {address}\n"
+            result += f"Alt Num : {alt_num}\n"
+            result += f"Circle  : {circle}\n"
+            result += f"ID      : {id_num}\n"
+            result += f"Email   : {email}\n"
             
-            for key, value in fields.items():
-                result += f"**{key} :** {value}\n"
+            result += f"\n{'-'*30}\n\n"
             
-            # Extra fields
-            extra_fields = ['DOB', 'Age', 'Gender', 'State', 'City', 'Pincode']
-            for field in extra_fields:
-                if field.lower() in data and data[field.lower()]:
-                    result += f"**{field} :** {data[field.lower()]}\n"
+            # Duplicate entry (same data)
+            result += f"Name    : {name}\n"
+            result += f"Father  : {father}\n"
+            result += f"Address : {address}\n"
+            result += f"Alt Num : {alt_num}\n"
+            result += f"Circle  : {circle}\n"
+            result += f"ID      : {id_num}\n"
+            result += f"Email   : {email}\n"
             
-            result += f"\n{'='*35}\n"
-            result += f"✅ **Search Completed Successfully!**\n"
-            result += f"**Target:** {number}\n"
-            result += f"**Plan:** Free (Pay per search)\n"
-            result += f"**Credits Left:** 3\n\n"
-            result += f"**Developer:** @T4HKR"
+            result += f"\n{'='*30}\n"
+            
             return result
         
-        return format_eric_demo(number)
+        return format_exact_demo(number)
     except:
-        return format_eric_demo(number)
+        return format_exact_demo(number)
 
-def format_eric_demo(number):
-    """Demo data in Eric x Info Bot style"""
-    result = f"📋 **NUMBER INFO RESULT**\n"
+def format_exact_demo(number):
+    """Demo data with exact format - duplicate entries"""
+    result = f"📋 NUMBER INFO RESULT\n"
     result += f"Target: {number}\n"
-    result += f"{'='*35}\n\n"
-    result += f"**Name :** DEVENDRA YADAV\n"
-    result += f"**Father :** RAJVANSHI YADAV\n"
-    result += f"**Address :** Ward 02, Village Deua Kumhra Bishunpur, Sitamarhi K Bishanpur Dumra, Bihar, 843323\n"
-    result += f"**Alt Num :** \n"
-    result += f"**Circle :** AIRTEL BHR&JHR\n"
-    result += f"**ID :** 318906385344\n"
-    result += f"**Email :** \n"
-    result += f"\n{'='*35}\n"
-    result += f"✅ **Search Completed Successfully!**\n"
-    result += f"**Target:** {number}\n"
-    result += f"**Plan:** Free (Pay per search)\n"
-    result += f"**Credits Left:** 3\n\n"
-    result += f"**Developer:** @T4HKR"
+    result += f"{'='*30}\n\n"
+    
+    # First entry
+    result += f"Name    : SANDHYA SINGH\n"
+    result += f"Father  : SUNEEL KUMAR SINGH\n"
+    result += f"Address : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\n"
+    result += f"Alt Num : \n"
+    result += f"Circle  : UP EAST\n"
+    result += f"ID      : 322123881901\n"
+    result += f"Email   : \n"
+    
+    result += f"\n{'-'*30}\n\n"
+    
+    # Duplicate entry
+    result += f"Name    : SANDHYA SINGH\n"
+    result += f"Father  : SUNEEL KUMAR SINGH\n"
+    result += f"Address : W/O Suneel Kumar Singh, 274, paragribshah, Tarun Taarun Blgara, Faizabad, Uttar Pradesh, 224203\n"
+    result += f"Alt Num : \n"
+    result += f"Circle  : UP EAST\n"
+    result += f"ID      : 322123881901\n"
+    result += f"Email   : \n"
+    
+    result += f"\n{'='*30}"
+    
     return result
 
 # ============ NOTIFICATION TO ADMIN ============
@@ -268,7 +283,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🆕 **New User Joined!**\n"
         f"👤 User: {user.first_name}\n"
         f"🆔 ID: `{user_id}`\n"
-        f"👤 Username: @{user.username if user.username else 'None'}\n"
         f"📊 Total Users: {get_total_users()}"
     )
     
@@ -284,8 +298,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await update.message.reply_text(
             "**⚠️ FORCE JOIN REQUIRED**\n\n"
-            "Please join all 3 channels to use this bot!\n"
-            "👇 Click buttons below to join:",
+            "Please join all 3 channels to use this bot!",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -346,11 +359,7 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.edit_message_text(
             "**❌ Still not joined all channels!**\n\n"
-            "Please join all 3 channels:\n"
-            f"• {CHANNEL_1}\n"
-            f"• {CHANNEL_2}\n"
-            f"• {CHANNEL_3}\n\n"
-            "Then click 'I HAVE JOINED ALL' again",
+            "Please join all 3 channels then try again.",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -377,14 +386,13 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     number = update.message.text.strip()
     
-    # Check for /num command
+    # Handle /num command
     if number.startswith('/num '):
         number = number.replace('/num ', '').strip()
     elif number.startswith('/num'):
         await update.message.reply_text(
             "❌ **Invalid Command!**\n\n"
-            "Usage: `/num 9876543210`\n"
-            "Or just send a 10-digit number",
+            "Usage: `/num 9876543210`",
             parse_mode='Markdown'
         )
         return
@@ -398,8 +406,7 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     msg = await update.message.reply_text(
-        "🔍 **Searching...**\n"
-        "⏳ Please wait...",
+        "⏳ Searching...",
         parse_mode='Markdown'
     )
     
@@ -418,7 +425,6 @@ async def handle_number(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     log_query(user_id, number, result if result != "PDF_SENT" else "PDF_SENT")
     
-    # Notify admin with Eric style
     await notify_admin(
         context,
         f"🔍 **New Query**\n"
@@ -499,8 +505,7 @@ async def admin_panel_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         "**Available Actions:**\n"
         "• 📢 Broadcast Messages\n"
         "• 📊 View User Stats\n"
-        "• 📥 Export User Data\n"
-        "• 📈 View Analytics\n\n"
+        "• 📥 Export User Data\n\n"
         "**Quick Actions:**\n"
         "Use the buttons below"
     )
@@ -537,12 +542,20 @@ async def profile_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         profile_text += f"📅 **Joined:** {user_data[2][:10]}\n"
         profile_text += f"🕐 **Last Active:** {user_data[3][:10]}\n"
         profile_text += f"🔍 **Total Queries:** `{user_data[4]}`\n"
-        profile_text += f"⭐ **Status:** {'👑 Admin' if user_id == ADMIN_ID else '👤 Premium User'}\n"
-        profile_text += f"📌 **Plan:** Free (Pay per search)\n"
-        profile_text += f"💳 **Credits Left:** 3"
+        profile_text += f"⭐ **Status:** {'👑 Admin' if user_id == ADMIN_ID else '👤 Premium User'}"
     else:
         profile_text = "❌ Profile not found!"
     
     await query.edit_message_text(
         profile_text,
-        reply_markup=get_permanen
+        reply_markup=get_permanent_buttons(user_id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
+
+async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = query.from_user.id
+    
+    if user_id != ADMIN_ID:
+        await query.edit_
