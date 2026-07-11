@@ -1,5 +1,6 @@
 # main.py
 import os
+import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, InputFile
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 import requests
@@ -7,21 +8,24 @@ import json
 from flask import Flask, request
 import threading
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 import io
+import random
 
 TOKEN = "8617423223:AAHUcMIDMWXVN0rpiWECM1v-3JucJzObiQs"
 CHANNEL_1 = "https://t.me/SUMITNETW0RK"
 CHANNEL_2 = "https://t.me/numberleakks"
 CHANNEL_3 = "https://t.me/lokixnetwork"
 CHANNEL_4 = "https://t.me/SlotsByPhoenix"
-ADMIN_ID = 7515864015
+ADMIN_IDS = [7515864015, 8242927146]
 API_URL = "https://numinfo-eris.vercel.app/info?key=sumit128&id="
+
+REMINDER_INTERVAL = 30  # minutes
 
 def init_db():
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, join_date TEXT, last_active TEXT, total_queries INTEGER DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_name TEXT, join_date TEXT, last_active TEXT, total_queries INTEGER DEFAULT 0, reminded BOOLEAN DEFAULT 0)''')
     c.execute('''CREATE TABLE IF NOT EXISTS queries (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, number TEXT, timestamp TEXT, result TEXT)''')
     conn.commit()
     conn.close()
@@ -29,14 +33,14 @@ def init_db():
 def add_user(user_id, username, first_name, last_name):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, join_date, last_active, total_queries) VALUES (?, ?, ?, ?, ?, ?, 0)''', (user_id, username, first_name, last_name, datetime.now().isoformat(), datetime.now().isoformat()))
+    c.execute('''INSERT OR IGNORE INTO users (user_id, username, first_name, last_name, join_date, last_active, total_queries, reminded) VALUES (?, ?, ?, ?, ?, ?, 0, 0)''', (user_id, username, first_name, last_name, datetime.now().isoformat(), datetime.now().isoformat()))
     conn.commit()
     conn.close()
 
 def update_user_activity(user_id):
     conn = sqlite3.connect('users.db')
     c = conn.cursor()
-    c.execute('''UPDATE users SET last_active = ?, total_queries = total_queries + 1 WHERE user_id = ?''', (datetime.now().isoformat(), user_id))
+    c.execute('''UPDATE users SET last_active = ?, total_queries = total_queries + 1, reminded = 0 WHERE user_id = ?''', (datetime.now().isoformat(), user_id))
     conn.commit()
     conn.close()
 
@@ -47,6 +51,24 @@ def get_total_users():
     count = c.fetchone()[0]
     conn.close()
     return count
+
+def get_inactive_users():
+    """Get users who haven't used bot in last 30 mins"""
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    cutoff = (datetime.now() - timedelta(minutes=REMINDER_INTERVAL)).isoformat()
+    c.execute('''SELECT user_id, first_name, reminded FROM users 
+                 WHERE last_active < ? AND reminded = 0''', (cutoff,))
+    users = c.fetchall()
+    conn.close()
+    return users
+
+def mark_reminded(user_id):
+    conn = sqlite3.connect('users.db')
+    c = conn.cursor()
+    c.execute('''UPDATE users SET reminded = 1 WHERE user_id = ?''', (user_id,))
+    conn.commit()
+    conn.close()
 
 app = Flask(__name__)
 
@@ -67,28 +89,73 @@ bot_app = Application.builder().token(TOKEN).build()
 
 verified_users = set()
 
-# ============ PERMANENT BUTTONS ============
-def get_main_buttons(is_admin=False):
+def is_admin(user_id):
+    return user_id in ADMIN_IDS
+
+# ============ REMINDER MESSAGES ============
+REMINDER_MESSAGES = [
+    "**👋 HELLO I'M READY TO USE!**\n\nSend any 10-digit number to get info 💪",
+    "**👋 HELLO WHERE ARE YOU?**\n\nSearch any number now! 📱💖",
+    "**🌟 STILL WAITING FOR YOU!**\n\nSend a number and get instant results 🚀",
+    "**⚡ DON'T FORGET!**\n\nI'm here to help you with number lookups 💯",
+    "**💫 READY WHEN YOU ARE!**\n\nJust send a 10-digit number and boom! 💥",
+    "**👀 I CAN SEE YOU'RE BUSY!**\n\nBut I'm always here for number searches 🔍"
+]
+
+# ============ REMINDER SYSTEM ============
+async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
+    """Send reminder messages to inactive users"""
+    try:
+        inactive_users = get_inactive_users()
+        
+        for user_id, first_name, reminded in inactive_users:
+            if reminded == 0:  # Only send if not reminded yet
+                try:
+                    msg = random.choice(REMINDER_MESSAGES)
+                    await context.bot.send_message(
+                        chat_id=user_id,
+                        text=msg,
+                        parse_mode='Markdown'
+                    )
+                    mark_reminded(user_id)
+                    print(f"✅ Reminder sent to {first_name} ({user_id})")
+                except Exception as e:
+                    print(f"❌ Failed to send reminder to {user_id}: {e}")
+    except Exception as e:
+        print(f"❌ Reminder error: {e}")
+
+def schedule_reminders(app):
+    """Schedule reminder messages every 30 minutes"""
+    job_queue = app.job_queue
+    
+    # Run every 30 minutes
+    job_queue.run_repeating(
+        send_reminders,
+        interval=REMINDER_INTERVAL * 60,  # Convert to seconds
+        first=60  # Start after 1 minute
+    )
+    print(f"✅ Reminders scheduled every {REMINDER_INTERVAL} minutes")
+
+# ============ BUTTONS ============
+def get_main_buttons(user_id):
     buttons = [
-        [InlineKeyboardButton("📱 Lookup Now", callback_data='lookup')],
-        [InlineKeyboardButton("💳 My Credits", callback_data='credits')],
-        [InlineKeyboardButton("👥 Refer & Earn", callback_data='refer')],
-        [InlineKeyboardButton("❓ Help", callback_data='help')],
+        [InlineKeyboardButton("📱 LOOKUP NOW", callback_data='lookup')],
     ]
-    if is_admin:
-        buttons.append([InlineKeyboardButton("📊 Total Users", callback_data='total_users')])
-        buttons.append([InlineKeyboardButton("➕ Add Credits", callback_data='add_credits')])
-        buttons.append([InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')])
-    buttons.append([InlineKeyboardButton("👤 Profile", callback_data='profile')])
+    if is_admin(user_id):
+        buttons.append([
+            InlineKeyboardButton("📢 BROADCAST", callback_data='broadcast'),
+            InlineKeyboardButton("📊 TOTAL USERS", callback_data='total_users')
+        ])
+    buttons.append([InlineKeyboardButton("🔙 BACK TO HOME", callback_data='home')])
     return InlineKeyboardMarkup(buttons)
 
 def get_join_buttons():
     buttons = [
-        [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
-        [InlineKeyboardButton("🔗 Join Channel 2", url=CHANNEL_2)],
-        [InlineKeyboardButton("🔗 Join Channel 3", url=CHANNEL_3)],
-        [InlineKeyboardButton("🔗 Join Channel 4", url=CHANNEL_4)],
-        [InlineKeyboardButton("✅ I Have Joined All", callback_data='check_join')],
+        [InlineKeyboardButton("🔗 JOIN CHANNEL 1", url=CHANNEL_1)],
+        [InlineKeyboardButton("🔗 JOIN CHANNEL 2", url=CHANNEL_2)],
+        [InlineKeyboardButton("🔗 JOIN CHANNEL 3", url=CHANNEL_3)],
+        [InlineKeyboardButton("🔗 JOIN CHANNEL 4", url=CHANNEL_4)],
+        [InlineKeyboardButton("✅ I HAVE JOINED ALL", callback_data='check_join')],
     ]
     return InlineKeyboardMarkup(buttons)
 
@@ -103,7 +170,13 @@ async def is_member(user_id, context):
             return False
     return True
 
-# ============ API ============
+async def notify_admins(context, message):
+    for admin_id in ADMIN_IDS:
+        try:
+            await context.bot.send_message(chat_id=admin_id, text=message, parse_mode='Markdown')
+        except:
+            pass
+
 async def get_number_info(number):
     try:
         response = requests.get(f"{API_URL}{number}", timeout=20)
@@ -140,22 +213,33 @@ async def get_number_info(number):
 # ============ HANDLERS ============
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    add_user(user.id, user.username, user.first_name, user.last_name)
-    verified_users.add(user.id)
+    user_id = user.id
     
-    if not await is_member(user.id, context):
-        msg = await update.message.reply_text(
+    add_user(user_id, user.username, user.first_name, user.last_name)
+    verified_users.add(user_id)
+    
+    await notify_admins(
+        context,
+        f"🆕 **New User Joined!**\n\n"
+        f"👤 Name: {user.first_name}\n"
+        f"🆔 ID: `{user_id}`\n"
+        f"📛 Username: @{user.username if user.username else 'None'}\n"
+        f"📊 Total Users: {get_total_users()}"
+    )
+    
+    if not await is_member(user_id, context):
+        await update.message.reply_text(
             "⚠️ **Please join all 4 channels first!**\n\nAfter joining, click the button below:",
             reply_markup=get_join_buttons(),
             parse_mode='Markdown'
         )
-        # Store message ID to delete later
-        context.user_data['join_msg_id'] = msg.message_id
         return
     
     await update.message.reply_text(
-        f"👋 Welcome {user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
-        reply_markup=get_main_buttons(user.id == ADMIN_ID),
+        f"👋 **Welcome {user.first_name}!**\n\n"
+        f"📱 Send any 10-digit number to get info\n"
+        f"👨‍💻 Developer: @T4HKR",
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
 
@@ -165,20 +249,19 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     
     if await is_member(user_id, context):
-        # Delete the force join message
         try:
             await query.message.delete()
         except:
             pass
         
-        # Send welcome message with buttons
         await query.message.reply_text(
-            f"👋 Welcome {query.from_user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            f"👋 **Welcome {query.from_user.first_name}!**\n\n"
+            f"📱 Send any 10-digit number to get info\n"
+            f"👨‍💻 Developer: @T4HKR",
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
     else:
-        # Edit message to show still not joined
         await query.edit_message_text(
             "❌ **Still not joined all channels!**\n\nPlease join all 4 channels first:",
             reply_markup=get_join_buttons(),
@@ -188,68 +271,27 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def lookup(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
+    
     await query.edit_message_text(
-        "📱 **Send a 10-digit number**\nExample: `9876543210`\n\nWithout +91",
-        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
+        "📱 **Send a 10-digit number**\n"
+        "Example: `9876543210`\n\n"
+        "⚠️ Without +91",
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
 
-async def credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "💳 **My Credits**\n\nYou have 0 credits\n\n💰 Buy credits:\n100 credits - ₹99\n500 credits - ₹399\n1000 credits - ₹699\n\nContact @T4HKR",
-        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def refer(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "👥 **Refer & Earn**\n\nRefer a friend and earn 10 credits!\n\nYour referral link:\n`https://t.me/SumitOsintBot?start=ref_{}`\n\nShare and earn! 🚀",
-        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    await query.edit_message_text(
-        "❓ **Help**\n\n📱 Send any 10-digit number to get info\n💰 Buy credits for unlimited searches\n👥 Refer friends to earn free credits\n\n👨‍💻 Developer: @T4HKR\n\n📌 Channels:\n• @SUMITNETW0RK\n• @numberleakks\n• @lokixnetwork\n• @SlotsByPhoenix",
-        reply_markup=get_main_buttons(query.from_user.id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
-
-async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def home(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     user = query.from_user
     
-    conn = sqlite3.connect('users.db')
-    c = conn.cursor()
-    c.execute('SELECT join_date, total_queries FROM users WHERE user_id = ?', (user_id,))
-    data = c.fetchone()
-    conn.close()
-    
-    if data:
-        profile_text = f"""👤 **Profile**
-
-Name: {user.first_name}
-Username: @{user.username if user.username else 'None'}
-ID: {user_id}
-Joined: {data[0][:10]}
-Total Queries: {data[1]}
-Credits: 0
-
-👨‍💻 Developer: @T4HKR"""
-    else:
-        profile_text = "❌ Profile not found!"
-    
     await query.edit_message_text(
-        profile_text,
-        reply_markup=get_main_buttons(user_id == ADMIN_ID),
+        f"👋 **Welcome {user.first_name}!**\n\n"
+        f"📱 Send any 10-digit number to get info\n"
+        f"👨‍💻 Developer: @T4HKR",
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
 
@@ -258,29 +300,20 @@ async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     user_id = query.from_user.id
     
-    if user_id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
+    if not is_admin(user_id):
+        await query.edit_message_text(
+            "❌ **Access Denied!**",
+            reply_markup=get_main_buttons(user_id),
+            parse_mode='Markdown'
+        )
         return
     
     total = get_total_users()
     await query.edit_message_text(
-        f"📊 **Total Users**\n\n👥 Total Users: {total}\n\n👨‍💻 Developer: @T4HKR",
-        reply_markup=get_main_buttons(True),
-        parse_mode='Markdown'
-    )
-
-async def add_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    
-    if user_id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
-        return
-    
-    await query.edit_message_text(
-        "➕ **Add Credits**\n\nSend user ID and credits:\n`/addcredits user_id amount`\n\nExample:\n`/addcredits 7515864015 100`",
-        reply_markup=get_main_buttons(True),
+        f"📊 **Total Users**\n\n"
+        f"👥 Total Users: `{total}`\n\n"
+        f"👨‍💻 Developer: @T4HKR",
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
 
@@ -289,28 +322,22 @@ async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     user_id = query.from_user.id
     
-    if user_id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
+    if not is_admin(user_id):
+        await query.edit_message_text(
+            "❌ **Access Denied!**",
+            reply_markup=get_main_buttons(user_id),
+            parse_mode='Markdown'
+        )
         return
     
     await query.edit_message_text(
-        "📢 **Broadcast Mode**\n\nSend the message you want to broadcast\nType /cancel to stop",
-        reply_markup=get_main_buttons(True),
+        "📢 **BROADCAST MODE**\n\n"
+        "Send the message you want to broadcast\n"
+        "Type /cancel to stop",
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
     context.user_data['broadcast_mode'] = True
-
-async def back(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    user_id = query.from_user.id
-    user = query.from_user
-    
-    await query.edit_message_text(
-        f"👋 Welcome {user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
-        reply_markup=get_main_buttons(user_id == ADMIN_ID),
-        parse_mode='Markdown'
-    )
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -320,19 +347,56 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in verified_users:
         verified_users.add(user_id)
     
+    # Check if in broadcast mode
+    if context.user_data.get('broadcast_mode'):
+        if is_admin(user_id):
+            conn = sqlite3.connect('users.db')
+            c = conn.cursor()
+            c.execute('SELECT user_id FROM users')
+            users = c.fetchall()
+            conn.close()
+            
+            if not users:
+                await update.message.reply_text("❌ No users!", reply_markup=get_main_buttons(user_id))
+                return
+            
+            success = 0
+            for u in users:
+                try:
+                    await context.bot.send_message(
+                        chat_id=u[0],
+                        text=f"📢 **BROADCAST**\n\n{text}",
+                        parse_mode='Markdown'
+                    )
+                    success += 1
+                except:
+                    pass
+            
+            await update.message.reply_text(
+                f"✅ Broadcast sent to {success} users",
+                reply_markup=get_main_buttons(user_id),
+                parse_mode='Markdown'
+            )
+            context.user_data['broadcast_mode'] = False
+            return
+        else:
+            await update.message.reply_text("❌ Access Denied!", reply_markup=get_main_buttons(user_id))
+            return
+    
+    # Check membership
     if not await is_member(user_id, context):
-        msg = await update.message.reply_text(
+        await update.message.reply_text(
             "⚠️ **Please join all 4 channels first!**",
             reply_markup=get_join_buttons(),
             parse_mode='Markdown'
         )
-        context.user_data['join_msg_id'] = msg.message_id
         return
     
+    # Check if number
     if not text.isdigit() or len(text) < 10:
         await update.message.reply_text(
             "❌ Send a valid 10-digit number\nExample: `9876543210`",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
         return
@@ -348,7 +412,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(pdf_file, filename=f"search_result_{text}.pdf"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
     elif result_type == "JSON" and result_data:
@@ -357,7 +421,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(json_file, filename=f"info_{text}.json"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
     elif result_type == "TEXT" and result_data:
@@ -366,56 +430,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_document(
             document=InputFile(txt_file, filename=f"search_result_{text}.txt"),
             caption=f"✅ Search Completed!\n\nTarget: {text}",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
     else:
         await msg.edit_text(
-            f"❌ **Error!**\n\n{result_data}\n\n👨‍💻 Developer: @T4HKR",
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+            f"❌ **Error!**\n\n{result_data}",
+            reply_markup=get_main_buttons(user_id),
             parse_mode='Markdown'
         )
-
-async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('broadcast_mode'):
-        if update.effective_user.id != ADMIN_ID:
-            await update.message.reply_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
-            return
-        
-        conn = sqlite3.connect('users.db')
-        c = conn.cursor()
-        c.execute('SELECT user_id FROM users')
-        users = c.fetchall()
-        conn.close()
-        
-        if not users:
-            await update.message.reply_text("❌ No users!", reply_markup=get_main_buttons(True))
-            return
-        
-        success = 0
-        for user in users:
-            try:
-                await context.bot.send_message(
-                    chat_id=user[0],
-                    text=f"📢 **BROADCAST**\n\n{update.message.text}",
-                    parse_mode='Markdown'
-                )
-                success += 1
-            except:
-                pass
-        
-        await update.message.reply_text(
-            f"✅ Broadcast sent to {success} users",
-            reply_markup=get_main_buttons(True),
-            parse_mode='Markdown'
-        )
-        context.user_data['broadcast_mode'] = False
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast_mode'] = False
+    user_id = update.effective_user.id
     await update.message.reply_text(
         "❌ Cancelled",
-        reply_markup=get_main_buttons(update.effective_user.id == ADMIN_ID),
+        reply_markup=get_main_buttons(user_id),
         parse_mode='Markdown'
     )
 
@@ -424,21 +454,24 @@ bot_app.add_handler(CommandHandler("start", start))
 bot_app.add_handler(CommandHandler("cancel", cancel))
 bot_app.add_handler(CallbackQueryHandler(check_join, pattern='check_join'))
 bot_app.add_handler(CallbackQueryHandler(lookup, pattern='lookup'))
-bot_app.add_handler(CallbackQueryHandler(credits, pattern='credits'))
-bot_app.add_handler(CallbackQueryHandler(refer, pattern='refer'))
-bot_app.add_handler(CallbackQueryHandler(help_callback, pattern='help'))
-bot_app.add_handler(CallbackQueryHandler(profile, pattern='profile'))
+bot_app.add_handler(CallbackQueryHandler(home, pattern='home'))
 bot_app.add_handler(CallbackQueryHandler(total_users, pattern='total_users'))
-bot_app.add_handler(CallbackQueryHandler(add_credits, pattern='add_credits'))
 bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
-bot_app.add_handler(CallbackQueryHandler(back, pattern='back'))
 bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-bot_app.add_handler(MessageHandler(filters.PHOTO, handle_broadcast))
 
 if __name__ == '__main__':
     init_db()
+    
+    # Start Flask thread
     threading.Thread(target=run_flask, daemon=True).start()
+    
+    # Start bot with job queue for reminders
     print("✅ Bot Started! Developer: @T4HKR")
-    print(f"👑 Admin ID: {ADMIN_ID}")
+    print(f"👑 Admins: {ADMIN_IDS}")
+    print(f"⏰ Reminders every {REMINDER_INTERVAL} minutes")
     print(f"📢 Channels: {CHANNEL_1}, {CHANNEL_2}, {CHANNEL_3}, {CHANNEL_4}")
+    
+    # Schedule reminders
+    schedule_reminders(bot_app)
+    
     bot_app.run_polling(allowed_updates=Update.ALL_TYPES)
