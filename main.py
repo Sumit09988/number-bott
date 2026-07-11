@@ -67,7 +67,7 @@ bot_app = Application.builder().token(TOKEN).build()
 
 verified_users = set()
 
-# ============ PERMANENT BUTTONS (Bottom) ============
+# ============ PERMANENT BUTTONS ============
 def get_main_buttons(is_admin=False):
     buttons = [
         [InlineKeyboardButton("📱 Lookup Now", callback_data='lookup')],
@@ -76,20 +76,12 @@ def get_main_buttons(is_admin=False):
         [InlineKeyboardButton("❓ Help", callback_data='help')],
     ]
     if is_admin:
-        buttons.append([InlineKeyboardButton("👑 Owner Dashboard", callback_data='admin')])
+        buttons.append([InlineKeyboardButton("📊 Total Users", callback_data='total_users')])
+        buttons.append([InlineKeyboardButton("➕ Add Credits", callback_data='add_credits')])
+        buttons.append([InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')])
     buttons.append([InlineKeyboardButton("👤 Profile", callback_data='profile')])
     return InlineKeyboardMarkup(buttons)
 
-def get_admin_buttons():
-    buttons = [
-        [InlineKeyboardButton("📊 Total Users", callback_data='total_users')],
-        [InlineKeyboardButton("➕ Add Credits", callback_data='add_credits')],
-        [InlineKeyboardButton("📢 Broadcast", callback_data='broadcast')],
-        [InlineKeyboardButton("⬅️ Back", callback_data='back')],
-    ]
-    return InlineKeyboardMarkup(buttons)
-
-# ============ FORCE JOIN (4 Channels) ============
 def get_join_buttons():
     buttons = [
         [InlineKeyboardButton("🔗 Join Channel 1", url=CHANNEL_1)],
@@ -128,13 +120,11 @@ async def get_number_info(number):
                     if pdf_response.status_code == 200:
                         return ("PDF", pdf_response.content)
                 
-                # Remove Api and Developer fields
                 if 'Api' in data:
                     del data['Api']
                 if 'Developer' in data:
                     del data['Developer']
                 
-                # Add Developer: @T4HKR
                 data['Developer'] = '@T4HKR'
                 
                 json_data = json.dumps(data, indent=2)
@@ -153,13 +143,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_user(user.id, user.username, user.first_name, user.last_name)
     verified_users.add(user.id)
     
-    # Check if user joined all 4 channels
     if not await is_member(user.id, context):
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             "⚠️ **Please join all 4 channels first!**\n\nAfter joining, click the button below:",
             reply_markup=get_join_buttons(),
             parse_mode='Markdown'
         )
+        # Store message ID to delete later
+        context.user_data['join_msg_id'] = msg.message_id
         return
     
     await update.message.reply_text(
@@ -174,12 +165,20 @@ async def check_join(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     
     if await is_member(user_id, context):
-        await query.edit_message_text(
+        # Delete the force join message
+        try:
+            await query.message.delete()
+        except:
+            pass
+        
+        # Send welcome message with buttons
+        await query.message.reply_text(
             f"👋 Welcome {query.from_user.first_name}!\n\n📱 Send any 10-digit number to get info\n\n👨‍💻 Developer: @T4HKR",
             reply_markup=get_main_buttons(user_id == ADMIN_ID),
             parse_mode='Markdown'
         )
     else:
+        # Edit message to show still not joined
         await query.edit_message_text(
             "❌ **Still not joined all channels!**\n\nPlease join all 4 channels first:",
             reply_markup=get_join_buttons(),
@@ -254,61 +253,49 @@ Credits: 0
         parse_mode='Markdown'
     )
 
-async def admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
     
     if user_id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!")
-        return
-    
-    await query.edit_message_text(
-        "👑 **Owner Dashboard**\n\nSelect an option:",
-        reply_markup=get_admin_buttons(),
-        parse_mode='Markdown'
-    )
-
-async def total_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!")
+        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
         return
     
     total = get_total_users()
     await query.edit_message_text(
         f"📊 **Total Users**\n\n👥 Total Users: {total}\n\n👨‍💻 Developer: @T4HKR",
-        reply_markup=get_admin_buttons(),
+        reply_markup=get_main_buttons(True),
         parse_mode='Markdown'
     )
 
 async def add_credits(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
     
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!")
+    if user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
         return
     
     await query.edit_message_text(
         "➕ **Add Credits**\n\nSend user ID and credits:\n`/addcredits user_id amount`\n\nExample:\n`/addcredits 7515864015 100`",
-        reply_markup=get_admin_buttons(),
+        reply_markup=get_main_buttons(True),
         parse_mode='Markdown'
     )
 
 async def broadcast_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    user_id = query.from_user.id
     
-    if query.from_user.id != ADMIN_ID:
-        await query.edit_message_text("❌ Access Denied!")
+    if user_id != ADMIN_ID:
+        await query.edit_message_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
         return
     
     await query.edit_message_text(
         "📢 **Broadcast Mode**\n\nSend the message you want to broadcast\nType /cancel to stop",
-        reply_markup=get_admin_buttons(),
+        reply_markup=get_main_buttons(True),
         parse_mode='Markdown'
     )
     context.user_data['broadcast_mode'] = True
@@ -333,13 +320,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in verified_users:
         verified_users.add(user_id)
     
-    # Check if joined all channels
     if not await is_member(user_id, context):
-        await update.message.reply_text(
+        msg = await update.message.reply_text(
             "⚠️ **Please join all 4 channels first!**",
             reply_markup=get_join_buttons(),
             parse_mode='Markdown'
         )
+        context.user_data['join_msg_id'] = msg.message_id
         return
     
     if not text.isdigit() or len(text) < 10:
@@ -392,7 +379,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if context.user_data.get('broadcast_mode'):
         if update.effective_user.id != ADMIN_ID:
-            await update.message.reply_text("❌ Access Denied!")
+            await update.message.reply_text("❌ Access Denied!", reply_markup=get_main_buttons(False))
             return
         
         conn = sqlite3.connect('users.db')
@@ -402,7 +389,7 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         conn.close()
         
         if not users:
-            await update.message.reply_text("❌ No users!")
+            await update.message.reply_text("❌ No users!", reply_markup=get_main_buttons(True))
             return
         
         success = 0
@@ -417,12 +404,20 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         
-        await update.message.reply_text(f"✅ Broadcast sent to {success} users")
+        await update.message.reply_text(
+            f"✅ Broadcast sent to {success} users",
+            reply_markup=get_main_buttons(True),
+            parse_mode='Markdown'
+        )
         context.user_data['broadcast_mode'] = False
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast_mode'] = False
-    await update.message.reply_text("❌ Cancelled")
+    await update.message.reply_text(
+        "❌ Cancelled",
+        reply_markup=get_main_buttons(update.effective_user.id == ADMIN_ID),
+        parse_mode='Markdown'
+    )
 
 # ============ REGISTER ============
 bot_app.add_handler(CommandHandler("start", start))
@@ -433,7 +428,6 @@ bot_app.add_handler(CallbackQueryHandler(credits, pattern='credits'))
 bot_app.add_handler(CallbackQueryHandler(refer, pattern='refer'))
 bot_app.add_handler(CallbackQueryHandler(help_callback, pattern='help'))
 bot_app.add_handler(CallbackQueryHandler(profile, pattern='profile'))
-bot_app.add_handler(CallbackQueryHandler(admin_dashboard, pattern='admin'))
 bot_app.add_handler(CallbackQueryHandler(total_users, pattern='total_users'))
 bot_app.add_handler(CallbackQueryHandler(add_credits, pattern='add_credits'))
 bot_app.add_handler(CallbackQueryHandler(broadcast_callback, pattern='broadcast'))
