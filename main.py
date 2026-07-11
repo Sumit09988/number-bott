@@ -288,13 +288,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.delete()
         await update.message.reply_document(
             document=InputFile(pdf_file, filename=f"search_result_{text}.pdf"),
-            caption=f"✅ Search Completed!\nTarget: {text}\n\n👨‍💻 Developer: @T4HKR",
+            caption=f"✅ Search Completed!\n\nTarget: {text}",
             parse_mode='Markdown'
         )
     elif result_type == "TEXT" and result_data:
-        await msg.edit_text(
-            result_data,
-            reply_markup=get_main_buttons(user_id == ADMIN_ID),
+        # Send as TXT file
+        txt_file = io.BytesIO(result_data.encode('utf-8'))
+        await msg.delete()
+        await update.message.reply_document(
+            document=InputFile(txt_file, filename=f"search_result_{text}.txt"),
+            caption=f"✅ Search Completed!\n\nTarget: {text}",
             parse_mode='Markdown'
         )
     else:
