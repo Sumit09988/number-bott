@@ -95,25 +95,29 @@ async def get_number_info(number):
         if response.status_code == 200:
             content_type = response.headers.get('content-type', '')
             
-            # If PDF
             if 'application/pdf' in content_type:
                 return ("PDF", response.content)
             
-            # If JSON
             try:
                 data = response.json()
-                # If PDF URL in JSON
                 if data.get('success') and data.get('pdf_url'):
                     pdf_response = requests.get(data['pdf_url'], timeout=20)
                     if pdf_response.status_code == 200:
                         return ("PDF", pdf_response.content)
                 
-                # Return raw JSON as file
+                # Remove Api and Developer fields
+                if 'Api' in data:
+                    del data['Api']
+                if 'Developer' in data:
+                    del data['Developer']
+                
+                # Add only Developer: @T4HKR
+                data['Developer'] = '@T4HKR'
+                
                 json_data = json.dumps(data, indent=2)
                 return ("JSON", json_data)
                 
             except json.JSONDecodeError:
-                # If not JSON, return raw text
                 return ("TEXT", response.text)
         else:
             return ("ERROR", f"Status Code: {response.status_code}")
@@ -300,7 +304,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     elif result_type == "JSON" and result_data:
-        # Send JSON as file
         json_file = io.BytesIO(result_data.encode('utf-8'))
         await msg.delete()
         await update.message.reply_document(
@@ -309,7 +312,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='Markdown'
         )
     elif result_type == "TEXT" and result_data:
-        # Send as txt file
         txt_file = io.BytesIO(result_data.encode('utf-8'))
         await msg.delete()
         await update.message.reply_document(
