@@ -14,11 +14,11 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "xxxxxxxxxxxxxxxxxx"
-ADMIN_ID = xxxxxxxxxxx
-CHANNEL_LINK = "https://t.me/+dw1_dzdlnGcyNjQ1"
-CHANNEL_ID = -1002256465587
-FIREBASE_DATA_CHANNEL = -1004314858694
+BOT_TOKEN = "8696235077:AAFwCoHeYjsIQwm284oDcgvpAoPkq5-NGjM"
+ADMIN_ID = 8242927146
+CHANNEL_LINK = "https://t.me/+VoXumX1ERYEzMGU1"
+CHANNEL_ID = -1003957702322
+FIREBASE_DATAFIREBASE_DATA_CHANNEL = -1003832627939_CHANNEL = -1003832627939
 
 DATA_FILE = "bot_data.pkl"
 VERSION_FILE = "bot_version.txt"
