@@ -1,7 +1,4 @@
-pyTelegramBotAPI
-pyrebase4
-requests
-gcloud
-oauth2client
-python-jwt
-pycryptodome
+python-telegram-bot==20.6
+Flask==3.0.0
+requests==2.31.0
+gunicorn==21.2.0
