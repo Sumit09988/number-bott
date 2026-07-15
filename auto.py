@@ -14,7 +14,7 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8696235077:AAFwCoHeYjsIQwm284oDcgvpAoPkq5-NGjM"
+BOT_TOKEN = "8933734748:AAHr0j-_wNXjF7pjdN58X8IdssALyv4OtbY"
 ADMIN_ID = 8242927146
 CHANNEL_LINK = "https://t.me/+VoXumX1ERYEzMGU1"
 CHANNEL_ID = -1003957702322
